@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Imports Dashboard</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+	<link rel="stylesheet" href="css/styles.css">
+	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+	<script src="js/barplot.js" defer></script>
+	<link rel="icon" type="image/x-icon" href="assets/favicon.ico">
+</head>
+<body>
+	 <div class="columns">
+    <!-- Sidebar for flashcards -->
+    <div class="column is-one-quarter is-flex is-flex-direction-column is-justify-content-space-between" style="max-width: 320px;">
+	<div class="flashcard-container is-flex is-flex-direction-column" style="flex: 1; gap: 0.75rem;">
+		<div class="box has-text-centered">
+			<p class="heading">Files Imported</p>
+			<p class="title" id="statFiles">0</p>
+		</div>
+		
+		<div class="box has-text-centered">
+			<p class="heading">Total Size (MB)</p>
+			<p class="title" id="statSize">0</p>
+		</div>
+		
+		<div class="box has-text-centered">
+			<p class="heading">Unique Users</p>
+			<p class="title" id="statUsers">0</p>
+		</div>
+
+		<div class="box has-text-centered">
+			<p class="heading">Avg. Import Size (MB)</p>
+			<p class="title" id="statAvgImportSize">0</p>
+		</div>
+
+		<div class="box has-text-centered">
+			<p class="heading">Avg. Import Time (s/MB)</p>
+			<p class="title" id="statAvgTimePerMB">0</p>
+		</div>
+
+		<div class="box has-text-centered">
+			<p class="heading">Peak Import Day</p>
+			<p class="title" id="statPeakDay">0</p>
+		</div>		
+
+		<div class="box has-text-centered">
+			<p class="heading">Period Change</p>
+			<p class="title" id="statPeriodChange">0</p>
+		</div>
+		
+		<div class="box has-text-centered">
+			<p class="heading">Top Microscope (Files)</p>
+			<p class="title" id="statScopeFiles">-</p>
+		</div>
+
+		<div class="box has-text-centered">
+			<p class="heading">Top Microscope (Size)</p>
+			<p class="title" id="statScopeSize">-</p>
+		</div>
+	</div>
+    </div>
+	
+	
+	<div class="column main-column">
+		<div class="field is-grouped is-align-items-center is-justify-content-space-between" style="width: 100%;">
+		  <!-- Left side: dropdowns -->
+		  <div class="is-flex is-flex-wrap-wrap" style="gap: 1rem;">
+			<div class="control">
+			  <label class="label" for="timePeriod">Time period:</label>
+			  <div class="select">
+				<select id="timePeriod">
+				  <option value="7">Last Week</option>
+				  <option value="30" selected>Last Month</option>
+				  <option value="365">Last Year</option>
+				</select>
+			  </div>
+			</div>
+
+			<div class="control">
+			  <label class="label" for="scopeSelect">Scope:</label>
+			  <div class="select">
+				<select id="scopeSelect">
+				  <option value="all" selected>All</option>
+				</select>
+			  </div>
+			</div>
+
+			<div class="control">
+			  <label class="label" for="metricSelect">Metric:</label>
+			  <div class="select">
+				<select id="metricSelect">
+				  <option value="file_count" selected>File Number</option>
+				  <option value="total_file_size_mb">Data (MB)</option>
+				</select>
+			  </div>
+			</div>
+		  </div>
+
+			<!-- Right side: export + title + logo -->
+			<div class="is-flex is-align-items-center" style="gap: 1rem; padding-right: 1rem;">
+				<button class="button is-link" id="exportPageBtn" style="height: 40px; margin-right: 40px;">Export PNG</button>
+				<div class="has-text-right is-flex is-flex-direction-column is-justify-content-center" style="line-height: 1.2; margin-right: 40px;">
+					<div class="title is-1" style="margin: 0;">Centre for Cellular Imaging</div>
+				</div>
+				<div class="logo-container">
+					<img src="assets/GU_logo.webp" alt="GU Logo">
+				</div>
+			</div>
+		</div>
+		<!-- Graph -->
+		<div class="chart-container">
+		  <canvas id="myChart"></canvas>
+		</div>
+	  </div>
+	</div>
+
+</body>
+</html>
