@@ -25,4 +25,4 @@ EXPOSE 8080
 
 # Use a small static server for frontend
 # We'll serve frontend via Express too (next step)
-CMD ["node", "backend/index.js"]
+CMD ["node", "index.js"]
