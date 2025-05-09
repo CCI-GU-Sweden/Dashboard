@@ -1,17 +1,33 @@
 let chartInstance = null;
 let allData = [];
 
-fetch('/imports')
-  .then(response => response.json())
-  .then(data => {
-    allData = data;
-    populateScopeDropdown(data);
-    updateChart();
-    document.getElementById('timePeriod').addEventListener('change', updateChart);
-    document.getElementById('scopeSelect').addEventListener('change', updateChart);
-    document.getElementById('metricSelect').addEventListener('change', updateChart);
-  })
-  .catch(err => console.error(err));
+function getSelectedFilters() {
+  return {
+    scope: document.getElementById('scopeSelect').value,
+    period: document.getElementById('timePeriod').value,
+    metric: document.getElementById('metricSelect').value,
+  };
+}
+
+function fetchDataAndUpdate() {
+  const { scope, period, metric } = getSelectedFilters();
+
+  fetch(`/imports?scope=${scope}&period=${period}&metric=${metric}`)
+    .then(response => response.json())
+    .then(data => {
+      allData = data;
+      populateScopeDropdown(data);
+      updateChart();
+    })
+    .catch(err => console.error('Error fetching data:', err));
+}
+
+document.getElementById('timePeriod').addEventListener('change', fetchDataAndUpdate);
+document.getElementById('scopeSelect').addEventListener('change', fetchDataAndUpdate);
+document.getElementById('metricSelect').addEventListener('change', fetchDataAndUpdate);
+
+// initial load
+fetchDataAndUpdate();
 
 // Populate the scope dropdown with unique scopes
 function populateScopeDropdown(data) {
