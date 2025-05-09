@@ -8,6 +8,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
 const rateLimit = require('express-rate-limit');
 
+app.set('trust proxy', true);
+app.use(express.json());
+
 // Limit each IP to 100 requests per 15 minutes
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
