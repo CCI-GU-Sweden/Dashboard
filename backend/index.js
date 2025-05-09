@@ -3,7 +3,7 @@ const { Pool } = require('pg');
 const path = require('path');
 
 const app = express();
-const port =  = process.env.PORT || 8080;
+const port = process.env.PORT || 8080;
 
 // Serve static files from frontend folder
 app.use(express.static(path.join(__dirname, '../frontend')));
