@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const port = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
+console.log(JWT_SECRET)
 const SHARED_PASSWORD = process.env.API_TOKEN || 'testtoken';
 
 const rateLimit = require('express-rate-limit');

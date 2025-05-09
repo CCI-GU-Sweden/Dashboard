@@ -39,7 +39,7 @@ function showBulmaPasswordModal(onUnlock) {
     .then(res => res.json())
     .then(data => {
       if (data.token) {
-        window.apiToken = data.token;
+        apiToken = data.token;
         closeModalFunc();
         lockIcon.textContent = '🔓';
         if (onUnlock) onUnlock();
