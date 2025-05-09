@@ -2,16 +2,16 @@
 FROM registry.access.redhat.com/ubi8/nodejs-18
 
 # Create app directory inside container
-WORKDIR /app
+WORKDIR /opt/app-root/src
 
 # --- BACKEND SETUP ---
 
 # Copy backend code
-COPY backend/package*.json ./backend/
+COPY backend/package*.json ./
 RUN cd backend && npm install
 
 # Copy backend source
-COPY backend ./backend
+COPY backend ./
 
 # --- FRONTEND SETUP ---
 
