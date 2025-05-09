@@ -120,20 +120,25 @@
 					  <button class="delete" aria-label="close" id="close-modal"></button>
 					</header>
 					<section class="modal-card-body">
-					  <div class="field">
-						<div class="control has-icons-left">
-						  <input class="input" type="password" id="password-input" placeholder="Password" autofocus>
-						  <span class="icon is-small is-left">
-							<i class="fas fa-lock"></i>
-						  </span>
+					  <form id="password-form" autocomplete="on">
+						<div class="field">
+						  <div class="control has-icons-left">
+							<input class="input"
+								   type="password"
+								   id="password-input"
+								   placeholder="Password"
+								   autocomplete="current-password"
+								   autofocus>
+							<span class="icon is-small is-left">
+							  <i class="fas fa-lock"></i>
+							</span>
+						  </div>
+						  <p class="help is-danger" id="password-error" style="display:none;"></p>
 						</div>
-						<p class="help is-danger" id="password-error" style="display:none;"></p>
-					  </div>
+						<button type="submit" class="button is-primary" id="unlock-btn">Unlock</button>
+						<button type="button" class="button" id="cancel-btn">Cancel</button>
+					  </form>
 					</section>
-					<footer class="modal-card-foot">
-					  <button class="button is-primary" id="unlock-btn">Unlock</button>
-					  <button class="button" id="cancel-btn">Cancel</button>
-					</footer>
 				  </div>
 				</div>
 			</div>

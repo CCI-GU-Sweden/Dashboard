@@ -5,7 +5,7 @@ function showBulmaPasswordModal(onUnlock) {
   const modal = document.getElementById('password-modal');
   const closeModal = document.getElementById('close-modal');
   const cancelBtn = document.getElementById('cancel-btn');
-  const unlockBtn = document.getElementById('unlock-btn');
+  const passwordForm = document.getElementById('password-form');
   const passwordInput = document.getElementById('password-input');
   const passwordError = document.getElementById('password-error');
   const lockIcon = document.getElementById('lock-icon');
@@ -28,7 +28,8 @@ function showBulmaPasswordModal(onUnlock) {
     resetModal();
   }
 
-  function handleUnlock() {
+  function handleUnlock(event) {
+    event.preventDefault(); // Prevent form from submitting normally
     const password = passwordInput.value;
     fetch('/api/secure', {
       method: 'POST',
@@ -59,10 +60,7 @@ function showBulmaPasswordModal(onUnlock) {
   lockIcon.onclick = openModal;
   closeModal.onclick = closeModalFunc;
   cancelBtn.onclick = closeModalFunc;
-  unlockBtn.onclick = handleUnlock;
-  passwordInput.onkeyup = function(event) {
-    if (event.key === 'Enter') handleUnlock();
-  };
+  passwordForm.onsubmit = handleUnlock;
   // Optional: close modal on background click
   modal.querySelector('.modal-background').onclick = closeModalFunc;
 }
