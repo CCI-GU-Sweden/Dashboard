@@ -7,7 +7,7 @@ const port = process.env.PORT || 8080;
 const AUTH_TOKEN = process.env.API_TOKEN || 'mytesttoken';
 
 // Serve static frontend
-app.use(express.static(path.join(__dirname, '../frontend')));
+app.use(express.static(path.join(__dirname, 'frontend')));
 
 // PostgreSQL pool
 const pool = new Pool({
@@ -156,11 +156,9 @@ app.get('/api/scopes', async (req, res) => {
   }
 });
 
-
-
 // Catch-all for frontend routes
 app.get('/:path(*)', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/index.html'));
+  res.sendFile(path.join(__dirname, 'frontend/index.html'));
 });
 
 app.listen(port, () => {
