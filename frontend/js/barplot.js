@@ -108,18 +108,6 @@ document.getElementById("exportPageBtn").addEventListener("click", () => {
 });
 
 function updateStats(filteredData) {
-	// Number of files imported
-	const totalFiles = filteredData.reduce((sum, row) => sum + row.file_count, 0);
-	document.getElementById('statFiles').textContent = totalFiles;
-
-  // Total size imported
-	const totalSize = filteredData.reduce((sum, row) => sum + row.total_file_size_mb, 0);
-	document.getElementById('statSize').textContent = totalSize.toFixed(2);
-
-  // Number of unique users
-  const userSet = new Set(filteredData.map(row => row.username));
-  document.getElementById('statUsers').textContent = userSet.size;
-
   // Most used scope (file number)
   const scopeFiles = {};
   filteredData.forEach(row => {
@@ -138,7 +126,18 @@ function updateStats(filteredData) {
 }
 
 function updateAdvancedStats(filteredData) {
+	// Number of files imported
+	const totalFiles = filteredData.reduce((sum, row) => sum + row.file_count, 0);
+	document.getElementById('statFiles').textContent = totalFiles;
+
+	// Total size imported
 	const totalSize = filteredData.reduce((sum, row) => sum + row.total_file_size_mb, 0);
+	document.getElementById('statSize').textContent = totalSize.toFixed(2);
+
+	// Number of unique users
+	const userSet = new Set(filteredData.map(row => row.username));
+	document.getElementById('statUsers').textContent = userSet.size;	
+
 	// Average import size (MB per import)
 	const avgImportSize = filteredData.length
 	? (filteredData.reduce((sum, row) => sum + row.total_file_size_mb, 0) / filteredData.length): 0;
