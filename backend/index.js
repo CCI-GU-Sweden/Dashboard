@@ -6,6 +6,18 @@ const app = express();
 const port = process.env.PORT || 8080;
 const AUTH_TOKEN = process.env.API_TOKEN || 'mytesttoken';
 
+const rateLimit = require('express-rate-limit');
+
+// Limit each IP to 100 requests per 15 minutes
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests, please try again later.'
+});
+
+// Apply to all API routes
+app.use('/api', limiter);
+
 // Serve static frontend
 app.use(express.static(path.join(__dirname, 'frontend')));
 
