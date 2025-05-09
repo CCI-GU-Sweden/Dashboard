@@ -4,10 +4,12 @@ const path = require('path');
 
 const app = express();
 const port = process.env.PORT || 8080;
+const AUTH_TOKEN = process.env.API_TOKEN || 'mytesttoken';
 
-// Serve static files from frontend folder
+// Serve static frontend
 app.use(express.static(path.join(__dirname, '../frontend')));
 
+// PostgreSQL pool
 const pool = new Pool({
   user: process.env.PGUSER,
   host: process.env.PGHOST,
@@ -16,61 +18,129 @@ const pool = new Pool({
   port: process.env.PGPORT,
 });
 
-// Allow CORS so your frontend can fetch data
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  next();
-});
+// API endpoint for aggregated stats
+app.get('/api/stats', async (req, res) => {
+  const token = req.headers['authorization'];
+  if (token !== `Bearer ${AUTH_TOKEN}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
-app.get('/imports', async (req, res) => {
   const { scope = 'all', period = '30', metric = 'file_count' } = req.query;
 
-  // Build WHERE clause
   const filters = [];
   const values = [];
+  let i = 1;
 
-  // Time period: get rows within last N days
-  if (period) {
-    filters.push(`import_date > NOW() - INTERVAL '${parseInt(period)} days'`);
-  }
+  filters.push(`time > NOW() - INTERVAL '${parseInt(period)} days'`);
 
-  // Scope filter (e.g., microscope name)
-  if (scope && scope !== 'all') {
+  if (scope !== 'all') {
+    filters.push(`scope = $${i++}`);
     values.push(scope);
-    filters.push(`microscope_name = $${values.length}`);
   }
 
-  // Build final SQL
-  const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
-  const metricColumn = (metric === 'total_file_size_mb') ? 'total_file_size_mb' : 'file_count';
-
-  const query = `
-    SELECT 
-		scope AS microscope_name,
-		time AS import_date,
-		${metricColumn}
-    FROM imports
-    ${whereClause}
-    ORDER BY import_date DESC
-    LIMIT 1000
-  `;
+  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const metricCol = (metric === 'total_file_size_mb') ? 'total_file_size_mb' : 'file_count';
 
   try {
-    const result = await pool.query(query, values);
-    res.json(result.rows);
+    // Query all filtered rows for processing
+    const rawQuery = `
+      SELECT scope, time, username, file_count, total_file_size_mb, import_time_s
+      FROM imports
+      ${where}
+    `;
+    const result = await pool.query(rawQuery, values);
+    const data = result.rows;
+
+    // Calculate stats
+    const totalFiles = data.reduce((sum, r) => sum + r.file_count, 0);
+    const totalSize = data.reduce((sum, r) => sum + r.total_file_size_mb, 0);
+    const userSet = new Set(data.map(r => r.username));
+    const avgImportSize = data.length ? totalSize / data.length : 0;
+    const totalTime = data.reduce((sum, r) => sum + r.import_time_s, 0);
+    const avgTimePerMB = totalSize ? totalTime / totalSize : 0;
+
+    // Top scope (file count)
+    const scopeFiles = {};
+    data.forEach(r => {
+      scopeFiles[r.scope] = (scopeFiles[r.scope] || 0) + r.file_count;
+    });
+    const topScopeFiles = Object.entries(scopeFiles).sort((a, b) => b[1] - a[1])[0];
+
+    // Top scope (size)
+    const scopeSize = {};
+    data.forEach(r => {
+      scopeSize[r.scope] = (scopeSize[r.scope] || 0) + r.total_file_size_mb;
+    });
+    const topScopeSize = Object.entries(scopeSize).sort((a, b) => b[1] - a[1])[0];
+
+    // Peak import day
+    const dayCounts = {};
+    data.forEach(r => {
+      const day = r.time.toISOString().slice(0, 10);
+      dayCounts[day] = (dayCounts[day] || 0) + r.file_count;
+    });
+    const peakDay = Object.entries(dayCounts).sort((a, b) => b[1] - a[1])[0];
+
+    // Grouped for chart
+    const grouped = {};
+    data.forEach(r => {
+      const date = r.time.toISOString().slice(0, 10);
+      grouped[date] = (grouped[date] || 0) + r[metricCol];
+    });
+    const labels = Object.keys(grouped).sort();
+    const valuesChart = labels.map(l => grouped[l]);
+
+    // Period change calc
+    const now = new Date();
+    const currentStart = new Date(now);
+    currentStart.setDate(currentStart.getDate() - period);
+    const previousStart = new Date(currentStart);
+    previousStart.setDate(previousStart.getDate() - period);
+
+    const current = data.filter(r => {
+      const d = new Date(r.time);
+      return d >= currentStart && d <= now;
+    });
+    const previous = data.filter(r => {
+      const d = new Date(r.time);
+      return d >= previousStart && d < currentStart;
+    });
+
+    const currentSum = current.reduce((s, r) => s + r.file_count, 0);
+    const previousSum = previous.reduce((s, r) => s + r.file_count, 0);
+    let periodChange = 0;
+    if (previousSum === 0 && currentSum > 0) periodChange = 100;
+    else if (previousSum === 0) periodChange = 0;
+    else periodChange = ((currentSum - previousSum) / previousSum) * 100;
+
+    // Final response
+    res.json({
+      total_files: totalFiles,
+      total_size_mb: totalSize.toFixed(2),
+      unique_users: userSet.size,
+      avg_import_size: avgImportSize.toFixed(2),
+      avg_time_per_mb: avgTimePerMB.toFixed(3),
+      top_scope_files: topScopeFiles ? { name: topScopeFiles[0], count: topScopeFiles[1] } : null,
+      top_scope_size: topScopeSize ? { name: topScopeSize[0], size_mb: topScopeSize[1].toFixed(2) } : null,
+      peak_day: peakDay ? { date: peakDay[0], count: peakDay[1] } : null,
+      period_change: periodChange.toFixed(1),
+      chart_data: {
+        labels: labels,
+        values: valuesChart,
+        label: metric === 'file_count' ? 'Files Imported' : 'Data Imported (MB)'
+      }
+    });
   } catch (err) {
     console.error('DB Query Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
+// Catch-all for frontend routes
+app.get('/:path(*)', (req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/index.html'));
+});
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
-});
-
-
-// Fallback to index.html for unknown routes (so refresh on subpages works)
-app.get('/:path(*)', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
