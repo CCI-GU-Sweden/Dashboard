@@ -1,7 +1,7 @@
 let chartInstance = null;
 let allData = [];
 
-fetch('http://localhost:3000/imports')
+fetch('/imports')
   .then(response => response.json())
   .then(data => {
     allData = data;
