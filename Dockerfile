@@ -1,5 +1,5 @@
 # Use official Node.js image
-FROM node:18-alpine
+FROM registry.access.redhat.com/ubi8/nodejs-18
 
 # Create app directory inside container
 WORKDIR /app
@@ -21,7 +21,7 @@ COPY frontend ./frontend
 # --- SERVER ENTRY POINT ---
 
 # Expose backend port
-EXPOSE 3000
+EXPOSE 8080
 
 # Use a small static server for frontend
 # We'll serve frontend via Express too (next step)
