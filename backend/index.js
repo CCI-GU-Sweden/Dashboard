@@ -4,7 +4,6 @@ const path = require('path');
 
 const app = express();
 const port = process.env.PORT || 8080;
-const AUTH_TOKEN = process.env.API_TOKEN || 'mytesttoken';
 
 // Serve static files from frontend folder
 app.use(express.static(path.join(__dirname, '../frontend')));
@@ -47,8 +46,8 @@ app.get('/imports', async (req, res) => {
 
   const query = `
     SELECT 
-		microscope_name AS scope,
-		import_date AS time,
+		scope AS microscope_name,
+		time AS import_date,
 		${metricColumn}
     FROM imports
     ${whereClause}
