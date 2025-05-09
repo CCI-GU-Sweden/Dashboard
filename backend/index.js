@@ -136,6 +136,28 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
+app.get('/api/scopes', async (req, res) => {
+  const token = req.headers['authorization'];
+  if (token !== `Bearer ${AUTH_TOKEN}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT scope
+      FROM imports
+      ORDER BY scope
+    `);
+    const scopes = result.rows.map(r => r.scope);
+    res.json(scopes);
+  } catch (err) {
+    console.error('Failed to fetch scopes:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
 // Catch-all for frontend routes
 app.get('/:path(*)', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/index.html'));

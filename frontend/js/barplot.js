@@ -8,6 +8,28 @@ function getSelectedFilters() {
   };
 }
 
+function populateScopeDropdown() {
+  fetch('/api/scopes', {
+    headers: {
+      'Authorization': 'Bearer mytesttoken'
+    }
+  })
+    .then(res => res.json())
+    .then(scopes => {
+      const scopeSelect = document.getElementById('scopeSelect');
+      scopes.forEach(scope => {
+        const option = document.createElement('option');
+        option.value = scope;
+        option.textContent = scope;
+        scopeSelect.appendChild(option);
+      });
+    })
+    .catch(err => {
+      console.error('Error loading scopes:', err);
+    });
+}
+
+
 function fetchAndRenderStats() {
   const { scope, period, metric } = getSelectedFilters();
 
@@ -102,4 +124,5 @@ document.getElementById('scopeSelect').addEventListener('change', fetchAndRender
 document.getElementById('metricSelect').addEventListener('change', fetchAndRenderStats);
 
 // Initial call
+populateScopeDropdown();
 fetchAndRenderStats();
