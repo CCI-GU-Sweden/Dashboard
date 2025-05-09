@@ -1,4 +1,67 @@
 let chartInstance = null;
+let apiToken = '';
+
+function showPasswordModal(onUnlock) {
+  const modal = document.getElementById('password-modal');
+  const closeModal = document.getElementById('close-modal');
+  const unlockBtn = document.getElementById('unlock-btn');
+  const passwordInput = document.getElementById('password-input');
+  const passwordError = document.getElementById('password-error');
+  const lockIcon = document.getElementById('lock-icon');
+
+  // Show modal
+  modal.style.display = 'block';
+  passwordInput.value = '';
+  passwordError.textContent = '';
+  passwordInput.focus();
+
+  // Close modal handler
+  closeModal.onclick = () => { modal.style.display = 'none'; };
+
+  // Click outside modal to close
+  window.onclick = (event) => {
+    if (event.target === modal) modal.style.display = 'none';
+  };
+
+  // Unlock handler
+  function handleUnlock() {
+    const password = passwordInput.value;
+    fetch('/api/secure', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ password })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.token) {
+        apiToken = data.token;
+        modal.style.display = 'none';
+        lockIcon.textContent = '🔓';
+        if (onUnlock) onUnlock();
+      } else {
+        passwordError.textContent = 'Wrong password!';
+      }
+    })
+    .catch(() => {
+      passwordError.textContent = 'Error contacting server!';
+    });
+  }
+
+  unlockBtn.onclick = handleUnlock;
+  passwordInput.onkeyup = function(event) {
+    if (event.key === 'Enter') handleUnlock();
+  };
+}
+
+// Attach to lock icon
+document.getElementById('lock-icon').onclick = function() {
+  showPasswordModal(() => {
+    // Optional: refresh data or unlock UI
+    populateScopeDropdown();
+    fetchAndRenderStats();
+  });
+};
+
 
 function getSelectedFilters() {
   return {
@@ -10,9 +73,7 @@ function getSelectedFilters() {
 
 function populateScopeDropdown() {
   fetch('/api/scopes', {
-    headers: {
-      'Authorization': 'Bearer mytesttoken'
-    }
+    headers: {'Authorization': 'Bearer ' + apiToken}
   })
     .then(res => res.json())
     .then(scopes => {
@@ -29,14 +90,11 @@ function populateScopeDropdown() {
     });
 }
 
-
 function fetchAndRenderStats() {
   const { scope, period, metric } = getSelectedFilters();
 
   fetch(`/api/stats?scope=${scope}&period=${period}&metric=${metric}`, {
-    headers: {
-      'Authorization': 'Bearer mytesttoken'
-    }
+    headers: {'Authorization': 'Bearer ' + apiToken}
   })
     .then(response => response.json())
     .then(stats => {

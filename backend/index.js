@@ -1,10 +1,10 @@
 const express = require('express');
 const { Pool } = require('pg');
 const path = require('path');
-
+const jwt = require('jsonwebtoken');
 const app = express();
 const port = process.env.PORT || 8080;
-const AUTH_TOKEN = process.env.API_TOKEN || 'mytesttoken';
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
 const rateLimit = require('express-rate-limit');
 
@@ -30,12 +30,34 @@ const pool = new Pool({
   port: process.env.PGPORT,
 });
 
-// API endpoint for aggregated stats
-app.get('/api/stats', async (req, res) => {
-  const token = req.headers['authorization'];
-  if (token !== `Bearer ${AUTH_TOKEN}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
+
+// Login route
+app.post('/api/secure', (req, res) => {
+  const { password } = req.body;
+  if (password === SHARED_PASSWORD) {
+    // Issue a JWT
+    const token = jwt.sign({ access: true }, JWT_SECRET, { expiresIn: '1h' });
+    return res.json({ token });
   }
+  res.status(401).json({ error: 'Unauthorized' });
+});
+
+// Middleware to check JWT
+function authMiddleware(req, res, next) {
+  const auth = req.headers['authorization'];
+  if (!auth) return res.status(401).json({ error: 'Unauthorized' });
+  const token = auth.split(' ')[1];
+  try {
+    jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Unauthorized' });
+  }
+}
+
+
+// API endpoint for aggregated stats
+app.get('/api/stats', authMiddleware, async (req, res) => {
 
   const { scope = 'all', period = '30', metric = 'file_count' } = req.query;
 
@@ -148,11 +170,7 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-app.get('/api/scopes', async (req, res) => {
-  const token = req.headers['authorization'];
-  if (token !== `Bearer ${AUTH_TOKEN}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+app.get('/api/scopes', authMiddleware, async (req, res) => {
 
   try {
     const result = await pool.query(`

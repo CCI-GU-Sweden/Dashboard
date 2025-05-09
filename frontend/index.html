@@ -106,6 +106,20 @@
 				<div class="logo-container">
 					<img src="assets/GU_logo.webp" alt="GU Logo">
 				</div>
+				
+				<!-- Lock icon -->
+				<span id="lock-icon" style="font-size: 2em; cursor: pointer;">🔒</span>
+
+				<!-- Password Modal -->
+				<div id="password-modal" class="modal">
+				  <div class="modal-content">
+					<span id="close-modal" class="close">&times;</span>
+					<h2>Enter Password</h2>
+					<input type="password" id="password-input" placeholder="Password" autofocus>
+					<button id="unlock-btn">Unlock</button>
+					<div id="password-error" style="color: red; margin-top: 10px;"></div>
+				  </div>
+				</div>
 			</div>
 		</div>
 		<!-- Graph -->
