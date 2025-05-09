@@ -3,6 +3,7 @@
 <head>
 	<title>Imports Dashboard</title>
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 	<link rel="stylesheet" href="css/styles.css">
 	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -107,17 +108,32 @@
 					<img src="assets/GU_logo.webp" alt="GU Logo">
 				</div>
 				
-				<!-- Lock icon -->
+				<!-- Lock Icon -->
 				<span id="lock-icon" style="font-size: 2em; cursor: pointer;">🔒</span>
 
-				<!-- Password Modal -->
+				<!-- Bulma Modal -->
 				<div id="password-modal" class="modal">
-				  <div class="modal-content">
-					<span id="close-modal" class="close">&times;</span>
-					<h2>Enter Password</h2>
-					<input type="password" id="password-input" placeholder="Password" autofocus>
-					<button id="unlock-btn">Unlock</button>
-					<div id="password-error" style="color: red; margin-top: 10px;"></div>
+				  <div class="modal-background"></div>
+				  <div class="modal-card">
+					<header class="modal-card-head">
+					  <p class="modal-card-title">Enter Password</p>
+					  <button class="delete" aria-label="close" id="close-modal"></button>
+					</header>
+					<section class="modal-card-body">
+					  <div class="field">
+						<div class="control has-icons-left">
+						  <input class="input" type="password" id="password-input" placeholder="Password" autofocus>
+						  <span class="icon is-small is-left">
+							<i class="fas fa-lock"></i>
+						  </span>
+						</div>
+						<p class="help is-danger" id="password-error" style="display:none;"></p>
+					  </div>
+					</section>
+					<footer class="modal-card-foot">
+					  <button class="button is-primary" id="unlock-btn">Unlock</button>
+					  <button class="button" id="cancel-btn">Cancel</button>
+					</footer>
 				  </div>
 				</div>
 			</div>

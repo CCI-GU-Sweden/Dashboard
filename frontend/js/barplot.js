@@ -1,29 +1,33 @@
 let chartInstance = null;
 let apiToken = '';
 
-function showPasswordModal(onUnlock) {
+function showBulmaPasswordModal(onUnlock) {
   const modal = document.getElementById('password-modal');
   const closeModal = document.getElementById('close-modal');
+  const cancelBtn = document.getElementById('cancel-btn');
   const unlockBtn = document.getElementById('unlock-btn');
   const passwordInput = document.getElementById('password-input');
   const passwordError = document.getElementById('password-error');
   const lockIcon = document.getElementById('lock-icon');
 
-  // Show modal
-  modal.style.display = 'block';
-  passwordInput.value = '';
-  passwordError.textContent = '';
-  passwordInput.focus();
+  function resetModal() {
+    passwordInput.value = '';
+    passwordError.textContent = '';
+    passwordError.style.display = 'none';
+    passwordInput.classList.remove('is-danger');
+  }
 
-  // Close modal handler
-  closeModal.onclick = () => { modal.style.display = 'none'; };
+  function openModal() {
+    modal.classList.add('is-active');
+    resetModal();
+    setTimeout(() => passwordInput.focus(), 100);
+  }
 
-  // Click outside modal to close
-  window.onclick = (event) => {
-    if (event.target === modal) modal.style.display = 'none';
-  };
+  function closeModalFunc() {
+    modal.classList.remove('is-active');
+    resetModal();
+  }
 
-  // Unlock handler
   function handleUnlock() {
     const password = passwordInput.value;
     fetch('/api/secure', {
@@ -34,33 +38,34 @@ function showPasswordModal(onUnlock) {
     .then(res => res.json())
     .then(data => {
       if (data.token) {
-        apiToken = data.token;
-        modal.style.display = 'none';
+        window.apiToken = data.token;
+        closeModalFunc();
         lockIcon.textContent = '🔓';
         if (onUnlock) onUnlock();
       } else {
         passwordError.textContent = 'Wrong password!';
+        passwordError.style.display = '';
+        passwordInput.classList.add('is-danger');
       }
     })
     .catch(() => {
       passwordError.textContent = 'Error contacting server!';
+      passwordError.style.display = '';
+      passwordInput.classList.add('is-danger');
     });
   }
 
+  // Event listeners
+  lockIcon.onclick = openModal;
+  closeModal.onclick = closeModalFunc;
+  cancelBtn.onclick = closeModalFunc;
   unlockBtn.onclick = handleUnlock;
   passwordInput.onkeyup = function(event) {
     if (event.key === 'Enter') handleUnlock();
   };
+  // Optional: close modal on background click
+  modal.querySelector('.modal-background').onclick = closeModalFunc;
 }
-
-// Attach to lock icon
-document.getElementById('lock-icon').onclick = function() {
-  showPasswordModal(() => {
-    // Optional: refresh data or unlock UI
-    populateScopeDropdown();
-    fetchAndRenderStats();
-  });
-};
 
 
 function getSelectedFilters() {
@@ -181,6 +186,8 @@ document.getElementById('timePeriod').addEventListener('change', fetchAndRenderS
 document.getElementById('scopeSelect').addEventListener('change', fetchAndRenderStats);
 document.getElementById('metricSelect').addEventListener('change', fetchAndRenderStats);
 
-// Initial call
-populateScopeDropdown();
-fetchAndRenderStats();
+showBulmaPasswordModal(() => {
+  // Refresh data or unlock UI here
+  populateScopeDropdown();
+  fetchAndRenderStats();
+});
