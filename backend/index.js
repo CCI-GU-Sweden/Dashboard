@@ -46,7 +46,10 @@ app.get('/imports', async (req, res) => {
   const metricColumn = (metric === 'total_file_size_mb') ? 'total_file_size_mb' : 'file_count';
 
   const query = `
-    SELECT microscope_name, import_date, ${metricColumn}
+    SELECT 
+		microscope_name AS scope,
+		import_date AS time,
+		${metricColumn}
     FROM imports
     ${whereClause}
     ORDER BY import_date DESC

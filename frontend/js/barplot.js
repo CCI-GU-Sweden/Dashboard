@@ -65,7 +65,7 @@ function updateChart() {
 		return scopeMatch;
 	});
 	
-	updateAdvancedStats(filteredData2);
+	ScopeStats(filteredData2);
 	const change = getPeriodChange(allData, daysBack, selectedScope);
 	document.getElementById('statPeriodChange').textContent = 
 	  (change >= 0 ? '+' : '') + change.toFixed(1) + '%';
@@ -141,7 +141,7 @@ function updateStats(filteredData) {
   document.getElementById('statScopeSize').textContent = topScopeSize ? `${topScopeSize[0]} (${topScopeSize[1].toFixed(2)} MB)` : '-';
 }
 
-function updateAdvancedStats(filteredData) {
+function ScopeStats(filteredData) {
 	// Number of files imported
 	const totalFiles = filteredData.reduce((sum, row) => sum + row.file_count, 0);
 	document.getElementById('statFiles').textContent = totalFiles;
