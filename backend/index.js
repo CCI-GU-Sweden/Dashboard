@@ -146,8 +146,8 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
 	  values.push(scope);
 	}
 
-	const result = await pool.query(sql, values);
-	const { current_sum, previous_sum } = result.rows[0];
+	const periodchangeresult = await pool.query(sql, values);
+	const { current_sum, previous_sum } = periodchangeresult.rows[0];
 
 	let periodChange = 0;
 	if (previous_sum == 0 && current_sum > 0) periodChange = 100;
