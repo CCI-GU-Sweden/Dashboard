@@ -140,13 +140,13 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
 	  WHERE time > NOW() - INTERVAL '${periodInt * 2} days'
 	`;
 
-	let values = [];
+	let periodchangevalues = [];
 	if (scope !== 'all') {
 	  sql += ` AND scope = $1`;
-	  values.push(scope);
+	  periodchangevalues.push(scope);
 	}
 
-	const periodchangeresult = await pool.query(sql, values);
+	const periodchangeresult = await pool.query(sql, periodchangevalues);
 	const { current_sum, previous_sum } = periodchangeresult.rows[0];
 
 	let periodChange = 0;
