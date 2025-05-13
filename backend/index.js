@@ -120,6 +120,9 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
     });
     const peakDay = Object.entries(dayCounts).sort((a, b) => b[1] - a[1])[0];
 
+    const labels = Object.keys(grouped).sort();
+    const valuesChart = labels.map(l => grouped[l]);
+
     // Previous period change
 	let sql = `
 	  SELECT
@@ -145,7 +148,9 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
 	}
 
 	const periodchangeresult = await pool.query(sql, periodchangevalues);
-	const { current_sum, previous_sum } = periodchangeresult.rows[0];
+	const row = periodchangeresult.rows[0] || {};
+	const current_sum = Number(row.current_sum) || 0;
+	const previous_sum = Number(row.previous_sum) || 0;
 
 	let periodChange = 0;
 	if (previous_sum == 0 && current_sum > 0) periodChange = 100;
