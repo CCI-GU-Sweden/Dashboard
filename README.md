@@ -25,5 +25,4 @@ A rate limiter to 100 API calls every 15 min.
 
 ## Next
 - Uniformize the postgreSQL (specially scope name and remove unused columns)
-- Correct/Remove the Period change, currently not working (always displaying 100%)
 - Coloring?
