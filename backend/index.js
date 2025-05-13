@@ -121,8 +121,6 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
     const peakDay = Object.entries(dayCounts).sort((a, b) => b[1] - a[1])[0];
 
     // Previous period change
-	const metricCol = (metric === 'total_file_size_mb') ? 'total_file_size_mb' : 'file_count';
-
 	let sql = `
 	  SELECT
 		SUM(CASE
