@@ -5,7 +5,6 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const port = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
-console.log(JWT_SECRET)
 const SHARED_PASSWORD = process.env.API_TOKEN || 'testtoken';
 
 const rateLimit = require('express-rate-limit');
@@ -66,11 +65,12 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
 
   const { scope = 'all', period = '30', metric = 'file_count' } = req.query;
 
+  const periodInt = parseInt(period);
   const filters = [];
   const values = [];
   let i = 1;
 
-  filters.push(`time > NOW() - INTERVAL '${parseInt(period)} days'`);
+  filters.push(`time > NOW() - INTERVAL '${periodInt} days'`);
 
   if (scope !== 'all') {
     filters.push(`scope = $${i++}`);
@@ -120,37 +120,39 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
     });
     const peakDay = Object.entries(dayCounts).sort((a, b) => b[1] - a[1])[0];
 
-    // Grouped for chart
-    const grouped = {};
-    data.forEach(r => {
-      const date = r.time.toISOString().slice(0, 10);
-      grouped[date] = (grouped[date] || 0) + r[metricCol];
-    });
-    const labels = Object.keys(grouped).sort();
-    const valuesChart = labels.map(l => grouped[l]);
+    // Previous period change
+	const metricCol = (metric === 'total_file_size_mb') ? 'total_file_size_mb' : 'file_count';
 
-    // Period change calc
-    const now = new Date();
-    const currentStart = new Date(now);
-    currentStart.setDate(currentStart.getDate() - period);
-    const previousStart = new Date(currentStart);
-    previousStart.setDate(previousStart.getDate() - period);
+	let sql = `
+	  SELECT
+		SUM(CASE
+			  WHEN time > NOW() - INTERVAL '${periodInt} days'
+			   THEN ${metricCol}
+			  ELSE 0
+			END) AS current_sum,
+		SUM(CASE
+			  WHEN time > NOW() - INTERVAL '${periodInt * 2} days'
+			   AND time <= NOW() - INTERVAL '${periodInt} days'
+			   THEN ${metricCol}
+			  ELSE 0
+			END) AS previous_sum
+	  FROM imports
+	  WHERE time > NOW() - INTERVAL '${periodInt * 2} days'
+	`;
 
-    const current = data.filter(r => {
-      const d = new Date(r.time);
-      return d >= currentStart && d <= now;
-    });
-    const previous = data.filter(r => {
-      const d = new Date(r.time);
-      return d >= previousStart && d < currentStart;
-    });
+	let values = [];
+	if (scope !== 'all') {
+	  sql += ` AND scope = $1`;
+	  values.push(scope);
+	}
 
-    const currentSum = current.reduce((s, r) => s + r.file_count, 0);
-    const previousSum = previous.reduce((s, r) => s + r.file_count, 0);
-    let periodChange = 0;
-    if (previousSum === 0 && currentSum > 0) periodChange = 100;
-    else if (previousSum === 0) periodChange = 0;
-    else periodChange = ((currentSum - previousSum) / previousSum) * 100;
+	const result = await pool.query(sql, values);
+	const { current_sum, previous_sum } = result.rows[0];
+
+	let periodChange = 0;
+	if (previous_sum == 0 && current_sum > 0) periodChange = 100;
+	else if (previous_sum == 0) periodChange = 0;
+	else periodChange = ((current_sum - previous_sum) / previous_sum) * 100;
 
     // Final response
     res.json({
