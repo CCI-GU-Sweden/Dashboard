@@ -110,24 +110,43 @@ function fetchAndRenderStats() {
 }
 
 function updateStatsUI(stats) {
-  document.getElementById('statFiles').textContent = stats.total_files;
-  document.getElementById('statSize').textContent = stats.total_size_mb;
-  document.getElementById('statUsers').textContent = stats.unique_users;
-  document.getElementById('statAvgImportSize').textContent = stats.avg_import_size;
-  document.getElementById('statAvgTimePerMB').textContent = stats.avg_time_per_mb;
-  document.getElementById('statPeriodChange').textContent =
-    (stats.period_change >= 0 ? '+' : '') + stats.period_change + '%';
+	document.getElementById('statFiles').textContent = stats.total_files;
+	document.getElementById('statSize').textContent = stats.total_size_mb;
+	document.getElementById('statUsers').textContent = stats.unique_users;
+	document.getElementById('statAvgImportSize').textContent = stats.avg_import_size;
+	document.getElementById('statAvgTimePerMB').textContent = stats.avg_time_per_mb;
 
-  const topScopeFiles = stats.top_scope_files;
-  const topScopeSize = stats.top_scope_size;
-  const peakDay = stats.peak_day;
+	const topScopeFiles = stats.top_scope_files;
+	const topScopeSize = stats.top_scope_size;
+	const peakDay = stats.peak_day;
 
-  document.getElementById('statScopeFiles').textContent = topScopeFiles
-    ? `${topScopeFiles.name} (${topScopeFiles.count})` : '-';
-  document.getElementById('statScopeSize').textContent = topScopeSize
-    ? `${topScopeSize.name} (${topScopeSize.size_mb} MB)` : '-';
-  document.getElementById('statPeakDay').textContent = peakDay
-    ? `${peakDay.date} (${peakDay.count})` : '-';
+	document.getElementById('statScopeFiles').textContent = topScopeFiles
+	? `${topScopeFiles.name} (${topScopeFiles.count})` : '-';
+	document.getElementById('statScopeSize').textContent = topScopeSize
+	? `${topScopeSize.name} (${topScopeSize.size_mb} MB)` : '-';
+	document.getElementById('statPeakDay').textContent = peakDay
+	? `${peakDay.date} (${peakDay.count})` : '-';
+
+	const el = document.getElementById('statPeriodChange');
+	const value = stats.period_change;
+	const sign = value >= 0 ? '+' : '';
+	el.textContent = `${sign}${value}%`;
+
+	// Remove previous color classes and icon
+	el.classList.remove('has-text-success', 'has-text-danger', 'has-text-grey');
+	const existingIcon = el.querySelector('i');
+	if (existingIcon) existingIcon.remove();
+
+	// Add color class and icon
+	if (value > 0) {
+	  el.classList.add('has-text-success');
+	  el.insertAdjacentHTML('beforeend', ' <i class="fas fa-arrow-up"></i>');
+	} else if (value < 0) {
+	  el.classList.add('has-text-danger');
+	  el.insertAdjacentHTML('beforeend', ' <i class="fas fa-arrow-down"></i>');
+	} else {
+	  el.classList.add('has-text-grey');
+	}
 }
 
 function updateChart(chartData) {
