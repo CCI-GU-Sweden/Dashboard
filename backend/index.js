@@ -119,7 +119,13 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
       dayCounts[day] = (dayCounts[day] || 0) + r.file_count;
     });
     const peakDay = Object.entries(dayCounts).sort((a, b) => b[1] - a[1])[0];
-
+	
+	// Grouped for chart
+    const grouped = {};
+    data.forEach(r => {
+      const date = r.time.toISOString().slice(0, 10);
+      grouped[date] = (grouped[date] || 0) + r[metricCol];
+    });
     const labels = Object.keys(grouped).sort();
     const valuesChart = labels.map(l => grouped[l]);
 
