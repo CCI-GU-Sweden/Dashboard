@@ -109,7 +109,7 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
 
     // Calculate stats
     const totalFiles = data.reduce((sum, r) => sum + r.file_count, 0);
-    const totalSize = data.reduce((sum, r) => sum + r.total_file_size_mb, 0);
+    const totalSize = data.reduce((sum, r) => sum + r.total_file_size_mb, 0) / 1024;
     const userSet = new Set(data.map(r => r.username));
     const avgImportSize = data.length ? totalSize / data.length : 0;
     const totalTime = data.reduce((sum, r) => sum + r.import_time_s, 0);
@@ -125,7 +125,7 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
     // Top scope (size)
     const scopeSize = {};
     data.forEach(r => {
-      scopeSize[r.scope] = (scopeSize[r.scope] || 0) + r.total_file_size_mb;
+      scopeSize[r.scope] = (scopeSize[r.scope] || 0) + r.total_file_size_mb / 1024;
     });
     const topScopeSize = Object.entries(scopeSize).sort((a, b) => b[1] - a[1])[0];
 
@@ -142,11 +142,14 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
 	data.forEach(r => {
 	  const date = r.time.toISOString().slice(0, 10);
 	  const scope = r.scope;
+	  const value = (metricCol === 'total_file_size_mb')
+		? r.total_file_size_mb / 1024
+		: r.file_count;
 
 	  if (!groupedByScope[scope]) {
 		groupedByScope[scope] = {};
 	  }
-	  groupedByScope[scope][date] = (groupedByScope[scope][date] || 0) + r[metricCol];
+	  groupedByScope[scope][date] = (groupedByScope[scope][date] || 0) + value;
 	});
 
 	// Get all unique dates and scopes
@@ -167,7 +170,9 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
 	const chartData = {
 	  labels: allDates,
 	  datasets: scopes.map(scope => ({
-		label: scope,
+		label: metricCol === 'total_file_size_mb'
+				? 'Data Imported (GB)'
+				: 'Files Imported',
 		data: allDates.map(date => groupedByScope[scope][date]),
 		backgroundColor: scopeColors[scope],
 		borderColor: scopeColors[scope]

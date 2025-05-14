@@ -123,7 +123,7 @@ function updateStatsUI(stats) {
 	document.getElementById('statScopeFiles').textContent = topScopeFiles
 	? `${topScopeFiles.name} (${topScopeFiles.count})` : '-';
 	document.getElementById('statScopeSize').textContent = topScopeSize
-	? `${topScopeSize.name} (${topScopeSize.size_mb} MB)` : '-';
+	? `${topScopeSize.name} (${topScopeSize.size_mb} GB)` : '-';
 	document.getElementById('statPeakDay').textContent = peakDay
 	? `${peakDay.date} (${peakDay.count})` : '-';
 
