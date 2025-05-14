@@ -170,9 +170,7 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
 	const chartData = {
 	  labels: allDates,
 	  datasets: scopes.map(scope => ({
-		label: metricCol === 'total_file_size_mb'
-				? 'Data Imported (GB)'
-				: 'Files Imported',
+		label: scope,
 		data: allDates.map(date => groupedByScope[scope][date]),
 		backgroundColor: scopeColors[scope],
 		borderColor: scopeColors[scope]
