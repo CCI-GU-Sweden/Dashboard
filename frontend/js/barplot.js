@@ -175,12 +175,12 @@ function updateChart(chartData) {
       plugins: {
         legend: {
           display: false
-        }
+        },
 	  tooltip: {
         mode: 'index',
         intersect: false
         }
-	},
+	  }
     }
   });
 }
