@@ -12,6 +12,23 @@ const rateLimit = require('express-rate-limit');
 app.set('trust proxy', true);
 app.use(express.json());
 
+
+function generateScopeColors(scopes) {
+	const colors = {};
+	const palette = [
+	'#4dc9f6', '#f67019', '#f53794', '#537bc4', '#acc236',
+	'#166a8f', '#00a950', '#58595b', '#8549ba', '#FF6384',
+	'#36A2EB', '#FFCE56', '#9966FF', '#4BC0C0', '#FF9F40'
+	];
+
+	scopes.forEach((scope, i) => {
+	// Cycle through palette if >15 scopes
+	colors[scope] = palette[i % palette.length];
+	});
+
+	return colors;
+}
+
 // Limit each IP to 100 requests per 15 minutes
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -120,14 +137,42 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
     });
     const peakDay = Object.entries(dayCounts).sort((a, b) => b[1] - a[1])[0];
 	
-	// Grouped for chart
-    const grouped = {};
-    data.forEach(r => {
-      const date = r.time.toISOString().slice(0, 10);
-      grouped[date] = (grouped[date] || 0) + r[metricCol];
-    });
-    const labels = Object.keys(grouped).sort();
-    const valuesChart = labels.map(l => grouped[l]);
+	// Grouped for chart by scope and date
+	const groupedByScope = {};
+	data.forEach(r => {
+	  const date = r.time.toISOString().slice(0, 10);
+	  const scope = r.scope;
+
+	  if (!groupedByScope[scope]) {
+		groupedByScope[scope] = {};
+	  }
+	  groupedByScope[scope][date] = (groupedByScope[scope][date] || 0) + r[metricCol];
+	});
+
+	// Get all unique dates and scopes
+	const allDates = [...new Set(data.map(r => r.time.toISOString().slice(0, 10)))].sort();
+	const scopes = Object.keys(groupedByScope);
+
+	// Fill missing dates with 0 for each scope
+	scopes.forEach(scope => {
+	  allDates.forEach(date => {
+		groupedByScope[scope][date] = groupedByScope[scope][date] || 0;
+	  });
+	});
+
+	// Generate dynamic colors for scopes
+	const scopeColors = generateScopeColors(scopes);
+
+	// Prepare chart data
+	const chartData = {
+	  labels: allDates,
+	  datasets: scopes.map(scope => ({
+		label: scope,
+		data: allDates.map(date => groupedByScope[scope][date]),
+		backgroundColor: scopeColors[scope],
+		borderColor: scopeColors[scope]
+	  }))
+	};	
 
     // Previous period change
 	let sql = `
@@ -174,11 +219,7 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
       top_scope_size: topScopeSize ? { name: topScopeSize[0], size_mb: topScopeSize[1].toFixed(2) } : null,
       peak_day: peakDay ? { date: peakDay[0], count: peakDay[1] } : null,
       period_change: periodChange.toFixed(1),
-      chart_data: {
-        labels: labels,
-        values: valuesChart,
-        label: metric === 'file_count' ? 'Files Imported' : 'Data Imported (MB)'
-      }
+      chart_data: chartData
     });
   } catch (err) {
     console.error('DB Query Error:', err.message);

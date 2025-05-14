@@ -153,34 +153,34 @@ function updateChart(chartData) {
   if (chartInstance) chartInstance.destroy();
 
   const ctx = document.getElementById('myChart').getContext('2d');
+  
   chartInstance = new Chart(ctx, {
     type: 'bar',
-    data: {
-      labels: chartData.labels,
-      datasets: [{
-        label: chartData.label,
-        data: chartData.values,
-        backgroundColor: 'rgba(54, 162, 235, 0.5)'
-      }]
-    },
+    data: chartData,
     options: {
       responsive: true,
       maintainAspectRatio: false,
       scales: {
         x: {
-          title: { display: true, text: 'Date' },
-          ticks: { autoSkip: true, maxTicksLimit: 10 }
+			stacked: true,
+			title: { display: true, text: 'Date' },
+			ticks: { autoSkip: true, maxTicksLimit: 10 }
         },
         y: {
-          title: { display: true, text: chartData.label },
-          beginAtZero: true
+			stacked: true,
+			title: { display: true, text: chartData.label },
+			beginAtZero: true
         }
       },
       plugins: {
         legend: {
           display: false
         }
-      }
+	  tooltip: {
+        mode: 'index',
+        intersect: false
+        }
+	},
     }
   });
 }
