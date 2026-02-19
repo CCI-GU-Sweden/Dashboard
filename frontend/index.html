@@ -36,8 +36,18 @@
 		</div>
 
 		<div class="box has-text-centered">
+			<p class="heading">Avg. Size per Day (GB)</p>
+			<p class="title" id="statAvgSizePerPeriod">0</p>
+		</div>
+
+		<div class="box has-text-centered">
 			<p class="heading">Avg. Import Time (s/GB)</p>
 			<p class="title" id="statAvgTimePerMB">0</p>
+		</div>
+
+		<div class="box has-text-centered">
+			<p class="heading">Avg. Files per Day</p>
+			<p class="title" id="statAvgCountPerPeriod">0</p>
 		</div>
 
 		<div class="box has-text-centered">
@@ -74,7 +84,24 @@
 				  <option value="7">Last Week</option>
 				  <option value="30" selected>Last Month</option>
 				  <option value="365">Last Year</option>
+				  <option value="custom">Custom Range</option>
 				</select>
+			  </div>
+			</div>
+
+			<!-- Custom date range (hidden by default) -->
+			<div id="customDateRange" style="display: none; display: flex; gap: 0.5rem; align-items: flex-end;">
+			  <div class="field">
+				<label class="label" for="startDate">Start Date:</label>
+				<div class="control">
+				  <input class="input" type="date" id="startDate">
+				</div>
+			  </div>
+			  <div class="field">
+				<label class="label" for="endDate">End Date:</label>
+				<div class="control">
+				  <input class="input" type="date" id="endDate">
+				</div>
 			  </div>
 			</div>
 

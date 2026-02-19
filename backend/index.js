@@ -80,14 +80,21 @@ function authMiddleware(req, res, next) {
 // API endpoint for aggregated stats
 app.get('/api/stats', authMiddleware, async (req, res) => {
 
-  const { scope = 'all', period = '30', metric = 'file_count' } = req.query;
+  const { scope = 'all', period = '30', metric = 'file_count', startDate, endDate } = req.query;
 
   const periodInt = parseInt(period);
   const filters = [];
   const values = [];
   let i = 1;
 
-  filters.push(`time > NOW() - INTERVAL '${periodInt} days'`);
+  // Use date range if provided, otherwise use period-based logic
+  if (startDate && endDate) {
+    filters.push(`time >= $${i++} AND time <= $${i++}`);
+    values.push(startDate);
+    values.push(endDate);
+  } else {
+    filters.push(`time > NOW() - INTERVAL '${periodInt} days'`);
+  }
 
   if (scope !== 'all') {
     filters.push(`scope = $${i++}`);
@@ -114,6 +121,28 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
     const avgImportSize = data.length ? totalSize / data.length : 0;
     const totalTime = data.reduce((sum, r) => sum + r.import_time_s, 0);
     const avgTimePerMB = totalSize ? totalTime / totalSize : 0;
+
+    // New metrics: average size per time period and average count per time period
+    const groupedByDate = {};
+    let totalSizeByPeriod = 0;
+    let totalCountByPeriod = 0;
+    let uniqueDates = new Set();
+    
+    data.forEach(r => {
+      const date = r.time.toISOString().slice(0, 10);
+      uniqueDates.add(date);
+      
+      if (!groupedByDate[date]) {
+        groupedByDate[date] = { size: 0, count: 0 };
+      }
+      groupedByDate[date].size += r.total_file_size_mb / 1024;
+      groupedByDate[date].count += r.file_count;
+      totalSizeByPeriod += r.total_file_size_mb / 1024;
+      totalCountByPeriod += r.file_count;
+    });
+
+    const avgSizePerPeriod = uniqueDates.size ? totalSizeByPeriod / uniqueDates.size : 0;
+    const avgCountPerPeriod = uniqueDates.size ? totalCountByPeriod / uniqueDates.size : 0;
 
     // Top scope (file count)
     const scopeFiles = {};
@@ -218,6 +247,8 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
       unique_users: userSet.size,
       avg_import_size: avgImportSize.toFixed(2),
       avg_time_per_mb: avgTimePerMB.toFixed(3),
+      avg_size_per_period: avgSizePerPeriod.toFixed(2),
+      avg_count_per_period: avgCountPerPeriod.toFixed(2),
       top_scope_files: topScopeFiles ? { name: topScopeFiles[0], count: topScopeFiles[1] } : null,
       top_scope_size: topScopeSize ? { name: topScopeSize[0], size_mb: topScopeSize[1].toFixed(2) } : null,
       peak_day: peakDay ? { date: peakDay[0], count: peakDay[1] } : null,

@@ -67,11 +67,24 @@ function showBulmaPasswordModal(onUnlock) {
 
 
 function getSelectedFilters() {
-  return {
+  const timePeriod = document.getElementById('timePeriod').value;
+  const filters = {
     scope: document.getElementById('scopeSelect').value,
-    period: document.getElementById('timePeriod').value,
     metric: document.getElementById('metricSelect').value,
   };
+
+  if (timePeriod === 'custom') {
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    if (startDate && endDate) {
+      filters.startDate = startDate;
+      filters.endDate = endDate;
+    }
+  } else {
+    filters.period = timePeriod;
+  }
+
+  return filters;
 }
 
 function populateScopeDropdown() {
@@ -94,9 +107,17 @@ function populateScopeDropdown() {
 }
 
 function fetchAndRenderStats() {
-  const { scope, period, metric } = getSelectedFilters();
+  const filters = getSelectedFilters();
+  
+  let url = `/api/stats?scope=${filters.scope}&metric=${filters.metric}`;
+  
+  if (filters.startDate && filters.endDate) {
+    url += `&startDate=${filters.startDate}&endDate=${filters.endDate}`;
+  } else if (filters.period) {
+    url += `&period=${filters.period}`;
+  }
 
-  fetch(`/api/stats?scope=${scope}&period=${period}&metric=${metric}`, {
+  fetch(url, {
     headers: {'Authorization': 'Bearer ' + apiToken}
   })
     .then(response => response.json())
@@ -115,6 +136,8 @@ function updateStatsUI(stats) {
 	document.getElementById('statUsers').textContent = stats.unique_users;
 	document.getElementById('statAvgImportSize').textContent = stats.avg_import_size;
 	document.getElementById('statAvgTimePerMB').textContent = stats.avg_time_per_mb;
+	document.getElementById('statAvgSizePerPeriod').textContent = stats.avg_size_per_period;
+	document.getElementById('statAvgCountPerPeriod').textContent = stats.avg_count_per_period;
 
 	const topScopeFiles = stats.top_scope_files;
 	const topScopeSize = stats.top_scope_size;
@@ -199,9 +222,26 @@ document.getElementById("exportPageBtn").addEventListener("click", () => {
 });
 
 // Filter triggers
-document.getElementById('timePeriod').addEventListener('change', fetchAndRenderStats);
+document.getElementById('timePeriod').addEventListener('change', function() {
+  const customDateRange = document.getElementById('customDateRange');
+  if (this.value === 'custom') {
+    customDateRange.style.display = 'flex';
+    // Set default date range to last month
+    const endDate = new Date();
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - 30);
+    document.getElementById('startDate').valueAsDate = startDate;
+    document.getElementById('endDate').valueAsDate = endDate;
+  } else {
+    customDateRange.style.display = 'none';
+  }
+  fetchAndRenderStats();
+});
+
 document.getElementById('scopeSelect').addEventListener('change', fetchAndRenderStats);
 document.getElementById('metricSelect').addEventListener('change', fetchAndRenderStats);
+document.getElementById('startDate').addEventListener('change', fetchAndRenderStats);
+document.getElementById('endDate').addEventListener('change', fetchAndRenderStats);
 
 showBulmaPasswordModal(() => {
   // Refresh data or unlock UI here
