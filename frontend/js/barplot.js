@@ -243,8 +243,13 @@ document.getElementById('metricSelect').addEventListener('change', fetchAndRende
 document.getElementById('startDate').addEventListener('change', fetchAndRenderStats);
 document.getElementById('endDate').addEventListener('change', fetchAndRenderStats);
 
+const timePeriodSelect = document.getElementById('timePeriod');
+const customDateRange = document.getElementById('customDateRange');
+customDateRange.style.display = timePeriodSelect.value === 'custom' ? 'flex' : 'none';
+
 showBulmaPasswordModal(() => {
   // Refresh data or unlock UI here
+  customDateRange.style.display = timePeriodSelect.value === 'custom' ? 'flex' : 'none';
   populateScopeDropdown();
   fetchAndRenderStats();
 });

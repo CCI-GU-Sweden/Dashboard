@@ -102,3 +102,11 @@ body {
   height: auto;
   display: block;
 }
+
+#customDateRange .field {
+  margin-bottom: 0;
+}
+
+#customDateRange {
+  display: none;
+}

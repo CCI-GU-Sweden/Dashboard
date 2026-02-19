@@ -122,27 +122,27 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
     const totalTime = data.reduce((sum, r) => sum + r.import_time_s, 0);
     const avgTimePerMB = totalSize ? totalTime / totalSize : 0;
 
-    // New metrics: average size per time period and average count per time period
-    const groupedByDate = {};
+    // New metrics: average size per calendar month and average count per calendar month
+    const groupedByMonth = {};
     let totalSizeByPeriod = 0;
     let totalCountByPeriod = 0;
-    let uniqueDates = new Set();
-    
+    let uniqueMonths = new Set();
+
     data.forEach(r => {
-      const date = r.time.toISOString().slice(0, 10);
-      uniqueDates.add(date);
-      
-      if (!groupedByDate[date]) {
-        groupedByDate[date] = { size: 0, count: 0 };
+      const monthKey = r.time.toISOString().slice(0, 7);
+      uniqueMonths.add(monthKey);
+
+      if (!groupedByMonth[monthKey]) {
+        groupedByMonth[monthKey] = { size: 0, count: 0 };
       }
-      groupedByDate[date].size += r.total_file_size_mb / 1024;
-      groupedByDate[date].count += r.file_count;
+      groupedByMonth[monthKey].size += r.total_file_size_mb / 1024;
+      groupedByMonth[monthKey].count += r.file_count;
       totalSizeByPeriod += r.total_file_size_mb / 1024;
       totalCountByPeriod += r.file_count;
     });
 
-    const avgSizePerPeriod = uniqueDates.size ? totalSizeByPeriod / uniqueDates.size : 0;
-    const avgCountPerPeriod = uniqueDates.size ? totalCountByPeriod / uniqueDates.size : 0;
+    const avgSizePerPeriod = uniqueMonths.size ? totalSizeByPeriod / uniqueMonths.size : 0;
+    const avgCountPerPeriod = uniqueMonths.size ? totalCountByPeriod / uniqueMonths.size : 0;
 
     // Top scope (file count)
     const scopeFiles = {};
