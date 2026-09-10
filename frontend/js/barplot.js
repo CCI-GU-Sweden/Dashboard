@@ -1,7 +1,10 @@
 let chartInstance = null;
-let apiToken = '';
+let apiToken = sessionStorage.getItem('dashboardToken') || '';
 let scopesLoaded = false;
 let openUploadsAfterUnlock = false;
+
+const currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
+const isUploadsPage = currentPath === '/uploads';
 
 const overviewView = document.getElementById('overviewView');
 const uploadsView = document.getElementById('uploadsView');
@@ -60,6 +63,7 @@ function setupAuthentication(onUnlock) {
       }
 
       apiToken = data.token;
+      sessionStorage.setItem('dashboardToken', apiToken);
       setAuthenticatedState(true);
       closeModalDialog();
       await onUnlock();
@@ -87,6 +91,7 @@ async function fetchJson(url) {
 
   if (response.status === 401) {
     apiToken = '';
+    sessionStorage.removeItem('dashboardToken');
     setAuthenticatedState(false);
     throw new Error('Your session has expired. Unlock the dashboard again.');
   }
@@ -133,18 +138,24 @@ async function fetchOverview() {
 }
 
 function showOverview() {
-  uploadsView.hidden = true;
-  overviewView.hidden = false;
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (isUploadsPage) {
+    window.location.assign('/');
+  } else {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 }
 
-async function showUploads() {
+function showUploads() {
   if (!apiToken) {
     openUploadsAfterUnlock = true;
     openAuthModal();
     return;
   }
 
+  window.location.assign('/uploads');
+}
+
+async function loadUploadsDashboard() {
   overviewView.hidden = true;
   uploadsView.hidden = false;
 
@@ -272,12 +283,18 @@ function updateCustomDateVisibility() {
 }
 
 async function handleUnlock() {
-  await fetchOverview();
+  if (isUploadsPage) {
+    await loadUploadsDashboard();
+    return;
+  }
 
   if (openUploadsAfterUnlock) {
     openUploadsAfterUnlock = false;
-    await showUploads();
+    window.location.assign('/uploads');
+    return;
   }
+
+  await fetchOverview();
 }
 
 const openAuthModal = setupAuthentication(handleUnlock);
@@ -323,4 +340,19 @@ document.getElementById('startDate').addEventListener('change', fetchAndRenderSt
 document.getElementById('endDate').addEventListener('change', fetchAndRenderStats);
 
 updateCustomDateVisibility();
-setAuthenticatedState(false);
+setAuthenticatedState(Boolean(apiToken));
+
+if (isUploadsPage) {
+  overviewView.hidden = true;
+  uploadsView.hidden = false;
+
+  if (apiToken) {
+    loadUploadsDashboard();
+  } else {
+    openAuthModal();
+  }
+} else {
+  overviewView.hidden = false;
+  uploadsView.hidden = true;
+  if (apiToken) fetchOverview();
+}

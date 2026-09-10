@@ -28,6 +28,10 @@ app.use('/api/summary', summaryRouter);
 
 app.use(express.static(path.join(__dirname, 'frontend')));
 
+app.get('/uploads', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend/index.html'));
+});
+
 app.get('/:path(*)', (req, res) => {
   res.sendFile(path.join(__dirname, 'frontend/index.html'));
 });
