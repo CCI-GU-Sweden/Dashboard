@@ -12,12 +12,16 @@ This app is designed to be deployed on OpenShift and to setup some environment v
 
 ## How
 
-On the backend of this app (index.js) is a simple API:  
-- secure is used to enter the shared password
-- scope is used to get the list of microscope
-- stats will grab the datapoints and statistics for the microscope, time period and data type
+The backend is split into database, authentication middleware, and route modules. Its API is organized as follows:
 
-The frontend (index.html) is only used to display the data, and cannot be used to access the data.
+- `/api/secure` is used to enter the shared password.
+- `/api/summary` returns the overview period and one summary object per dashboard section. It currently includes upload count, total bytes, and the top microscope for the one-month period ending today.
+- `/api/uploads/summary` returns upload statistics for the selected microscope, time period, and data type.
+- `/api/uploads/history` returns the chart history for the same upload filters.
+- `/api/uploads/scopes` and `/api/uploads/microscopes` return the available upload scopes (currently, a scope identifies a microscope).
+- `/api/omero/summary`, `/history`, `/groups`, `/filesets`, `/policies`, and `/collector-runs` are authenticated placeholders for the OMERO dashboard and currently return `501 Not Implemented`.
+
+The frontend opens on an overview of Uploads, OMERO Storage, and Compute. The Uploads card links to the existing detailed dashboard; detailed data is loaded only when that view is opened.
 
 ## Security
 

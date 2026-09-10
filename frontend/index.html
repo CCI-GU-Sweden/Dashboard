@@ -1,181 +1,205 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-	<title>Imports Dashboard</title>
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-	<link rel="stylesheet" href="css/styles.css">
-	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-	<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-	<script src="js/barplot.js" defer></script>
-	<link rel="icon" type="image/x-icon" href="assets/favicon.ico">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CCI Data Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="js/barplot.js" defer></script>
 </head>
 <body>
-	 <div class="columns">
-    <!-- Sidebar for flashcards -->
-    <div class="column is-one-quarter is-flex is-flex-direction-column is-justify-content-space-between" style="max-width: 320px;">
-	<div class="flashcard-container is-flex is-flex-direction-column" style="flex: 1; gap: 0.75rem;">
-		<div class="box has-text-centered">
-			<p class="heading">Files Imported</p>
-			<p class="title" id="statFiles">0</p>
-		</div>
-		
-		<div class="box has-text-centered">
-			<p class="heading">Total Size (GB)</p>
-			<p class="title" id="statSize">0</p>
-		</div>
-		
-		<div class="box has-text-centered">
-			<p class="heading">Unique Users</p>
-			<p class="title" id="statUsers">0</p>
-		</div>
+  <header class="dashboard-header">
+    <button class="brand-button" id="overviewHome" type="button" aria-label="Go to overview">
+      <img src="assets/GU_logo.webp" alt="University of Gothenburg logo">
+      <span>
+        <strong>Centre for Cellular Imaging</strong>
+        <small>Data dashboard</small>
+      </span>
+    </button>
+    <button class="lock-button" id="lock-icon" type="button" aria-label="Unlock dashboard" title="Unlock dashboard">
+      <i class="fas fa-lock" aria-hidden="true"></i>
+    </button>
+  </header>
 
-		<div class="box has-text-centered">
-			<p class="heading">Avg. Import Size (GB)</p>
-			<p class="title" id="statAvgImportSize">0</p>
-		</div>
+  <main>
+    <section class="overview-view" id="overviewView">
+      <div class="overview-heading">
+        <p class="eyebrow">CCI infrastructure</p>
+        <h1 class="title is-2">Overview</h1>
+        <p class="subtitle is-5">A quick view across data ingestion, storage, and compute.</p>
+        <p class="overview-period" id="overviewPeriod">Unlock the dashboard to load the latest summary.</p>
+      </div>
 
-		<div class="box has-text-centered">
-			<p class="heading">Avg. Size per Month (GB)</p>
-			<p class="title" id="statAvgSizePerPeriod">0</p>
-		</div>
+      <div class="summary-grid">
+        <article class="summary-card summary-card-active" id="uploadsCard" role="button" tabindex="0" aria-label="Open uploads details">
+          <div class="card-heading">
+            <span class="card-icon uploads-icon"><i class="fas fa-arrow-up-from-bracket" aria-hidden="true"></i></span>
+            <span class="status-badge">Live</span>
+          </div>
+          <div>
+            <p class="eyebrow">Data ingestion</p>
+            <h2 class="title is-4">Uploads</h2>
+          </div>
+          <div class="summary-metrics">
+            <div>
+              <span>Files imported</span>
+              <strong id="overviewUploadCount">—</strong>
+            </div>
+            <div>
+              <span>Total data</span>
+              <strong id="overviewUploadBytes">—</strong>
+            </div>
+            <div>
+              <span>Top microscope</span>
+              <strong id="overviewTopMicroscope">—</strong>
+            </div>
+          </div>
+          <div class="card-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
+        </article>
 
-		<div class="box has-text-centered">
-			<p class="heading">Avg. Import Time (s/GB)</p>
-			<p class="title" id="statAvgTimePerMB">0</p>
-		</div>
+        <article class="summary-card summary-card-pending" aria-disabled="true">
+          <div class="card-heading">
+            <span class="card-icon storage-icon"><i class="fas fa-database" aria-hidden="true"></i></span>
+            <span class="status-badge muted">Coming soon</span>
+          </div>
+          <div>
+            <p class="eyebrow">Managed repository</p>
+            <h2 class="title is-4">OMERO Storage</h2>
+          </div>
+          <p class="pending-copy">Storage usage, groups, filesets, and policy status will appear here.</p>
+          <div class="card-link muted-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
+        </article>
 
-		<div class="box has-text-centered">
-			<p class="heading">Avg. Files per Month</p>
-			<p class="title" id="statAvgCountPerPeriod">0</p>
-		</div>
+        <article class="summary-card summary-card-pending" aria-disabled="true">
+          <div class="card-heading">
+            <span class="card-icon compute-icon"><i class="fas fa-microchip" aria-hidden="true"></i></span>
+            <span class="status-badge muted">Future</span>
+          </div>
+          <div>
+            <p class="eyebrow">Processing</p>
+            <h2 class="title is-4">Compute</h2>
+          </div>
+          <p class="pending-copy">Compute activity and capacity will be added as the platform grows.</p>
+          <div class="card-link muted-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
+        </article>
+      </div>
 
-		<div class="box has-text-centered">
-			<p class="heading">Peak Import Day</p>
-			<p class="title" id="statPeakDay">0</p>
-		</div>		
+      <p class="notification is-danger is-light overview-error" id="overviewError" hidden></p>
+    </section>
 
-		<div class="box has-text-centered">
-			<p class="heading">Period Change</p>
-			<p class="title" id="statPeriodChange">0</p>
-		</div>
-		
-		<div class="box has-text-centered">
-			<p class="heading">Top Microscope (Files)</p>
-			<p class="title" id="statScopeFiles">-</p>
-		</div>
+    <section class="uploads-view" id="uploadsView" hidden>
+      <div class="detail-toolbar">
+        <button class="button is-light" id="backToOverview" type="button">
+          <span class="icon"><i class="fas fa-arrow-left" aria-hidden="true"></i></span>
+          <span>Overview</span>
+        </button>
+        <div class="detail-title">
+          <p class="eyebrow">Overview / Uploads</p>
+          <h1 class="title is-4">Upload details</h1>
+        </div>
+        <button class="button is-link is-light" id="exportPageBtn" type="button">
+          <span class="icon"><i class="fas fa-download" aria-hidden="true"></i></span>
+          <span>Export PNG</span>
+        </button>
+      </div>
 
-		<div class="box has-text-centered">
-			<p class="heading">Top Microscope (Size)</p>
-			<p class="title" id="statScopeSize">-</p>
-		</div>
-	</div>
+      <div class="upload-dashboard">
+        <aside class="metric-sidebar">
+          <div class="metric-card"><p>Files imported</p><strong id="statFiles">0</strong></div>
+          <div class="metric-card"><p>Total size (GB)</p><strong id="statSize">0</strong></div>
+          <div class="metric-card"><p>Unique users</p><strong id="statUsers">0</strong></div>
+          <div class="metric-card"><p>Avg. import size (GB)</p><strong id="statAvgImportSize">0</strong></div>
+          <div class="metric-card"><p>Avg. size per month (GB)</p><strong id="statAvgSizePerPeriod">0</strong></div>
+          <div class="metric-card"><p>Avg. import time (s/GB)</p><strong id="statAvgTimePerMB">0</strong></div>
+          <div class="metric-card"><p>Avg. files per month</p><strong id="statAvgCountPerPeriod">0</strong></div>
+          <div class="metric-card"><p>Peak import day</p><strong id="statPeakDay">—</strong></div>
+          <div class="metric-card"><p>Period change</p><strong id="statPeriodChange">0</strong></div>
+          <div class="metric-card"><p>Top microscope (files)</p><strong id="statScopeFiles">—</strong></div>
+          <div class="metric-card"><p>Top microscope (size)</p><strong id="statScopeSize">—</strong></div>
+        </aside>
+
+        <div class="detail-content">
+          <div class="filter-bar">
+            <div class="field">
+              <label class="label" for="timePeriod">Time period</label>
+              <div class="select">
+                <select id="timePeriod">
+                  <option value="7">Last week</option>
+                  <option value="30" selected>Last month</option>
+                  <option value="365">Last year</option>
+                  <option value="custom">Custom range</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="customDateRange" class="custom-date-range">
+              <div class="field">
+                <label class="label" for="startDate">From</label>
+                <input class="input" type="date" id="startDate">
+              </div>
+              <div class="field">
+                <label class="label" for="endDate">To</label>
+                <input class="input" type="date" id="endDate">
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="scopeSelect">Microscope</label>
+              <div class="select">
+                <select id="scopeSelect">
+                  <option value="all" selected>All</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="metricSelect">Metric</label>
+              <div class="select">
+                <select id="metricSelect">
+                  <option value="file_count" selected>File number</option>
+                  <option value="total_file_size_mb">Data (GB)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="chart-panel">
+            <canvas id="myChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="password-modal" class="modal">
+    <div class="modal-background"></div>
+    <div class="modal-card">
+      <header class="modal-card-head">
+        <p class="modal-card-title">Unlock dashboard</p>
+        <button class="delete" aria-label="Close" id="close-modal" type="button"></button>
+      </header>
+      <section class="modal-card-body">
+        <form id="password-form" autocomplete="on">
+          <div class="field">
+            <label class="label" for="password-input">Shared password</label>
+            <div class="control has-icons-left">
+              <input class="input" type="password" id="password-input" autocomplete="current-password" required>
+              <span class="icon is-small is-left"><i class="fas fa-lock" aria-hidden="true"></i></span>
+            </div>
+            <p class="help is-danger" id="password-error" hidden></p>
+          </div>
+          <div class="buttons is-justify-content-flex-end">
+            <button type="button" class="button" id="cancel-btn">Cancel</button>
+            <button type="submit" class="button is-primary" id="unlock-btn">Unlock</button>
+          </div>
+        </form>
+      </section>
     </div>
-	
-	
-	<div class="column main-column">
-		<div class="field is-grouped is-align-items-center is-justify-content-space-between" style="width: 100%;">
-		  <!-- Left side: dropdowns -->
-		  <div class="is-flex is-flex-wrap-wrap" style="gap: 1rem;">
-			<div class="control">
-			  <label class="label" for="timePeriod">Time period:</label>
-			  <div class="select">
-				<select id="timePeriod">
-				  <option value="7">Last Week</option>
-				  <option value="30" selected>Last Month</option>
-				  <option value="365">Last Year</option>
-				  <option value="custom">Custom Range</option>
-				</select>
-			  </div>
-			</div>
-
-			<!-- Custom date range (hidden by default) -->
-			<div id="customDateRange" style="display: none; gap: 0.5rem; align-items: flex-end;">
-			  <div class="field">
-				<label class="label" for="startDate">Start Date:</label>
-				<div class="control">
-				  <input class="input" type="date" id="startDate">
-				</div>
-			  </div>
-			  <div class="field">
-				<label class="label" for="endDate">End Date:</label>
-				<div class="control">
-				  <input class="input" type="date" id="endDate">
-				</div>
-			  </div>
-			</div>
-
-			<div class="control">
-			  <label class="label" for="scopeSelect">Microscope:</label>
-			  <div class="select">
-				<select id="scopeSelect">
-				  <option value="all" selected>All</option>
-				</select>
-			  </div>
-			</div>
-
-			<div class="control">
-			  <label class="label" for="metricSelect">Metric:</label>
-			  <div class="select">
-				<select id="metricSelect">
-				  <option value="file_count" selected>File Number</option>
-				  <option value="total_file_size_mb">Data (GB)</option>
-				</select>
-			  </div>
-			</div>
-		  </div>
-
-			<!-- Right side: export + title + logo -->
-			<div class="is-flex is-align-items-center" style="gap: 1rem; padding-right: 1rem;">
-				<button class="button is-link" id="exportPageBtn" style="height: 40px; margin-right: 40px;">Export PNG</button>
-				<div class="has-text-right is-flex is-flex-direction-column is-justify-content-center" style="line-height: 1.2; margin-right: 40px;">
-					<div class="title is-4" style="margin: 0;">Centre for Cellular Imaging</div>
-				</div>
-				<div class="logo-container">
-					<img src="assets/GU_logo.webp" alt="GU Logo">
-				</div>
-				
-				<!-- Lock Icon -->
-				<span id="lock-icon" style="font-size: 2em; cursor: pointer;">🔒</span>
-
-				<!-- Bulma Modal -->
-				<div id="password-modal" class="modal">
-				  <div class="modal-background"></div>
-				  <div class="modal-card">
-					<header class="modal-card-head">
-					  <p class="modal-card-title">Enter Password</p>
-					  <button class="delete" aria-label="close" id="close-modal"></button>
-					</header>
-					<section class="modal-card-body">
-					  <form id="password-form" autocomplete="on">
-						<div class="field">
-						  <div class="control has-icons-left">
-							<input class="input"
-								   type="password"
-								   id="password-input"
-								   placeholder="Password"
-								   autocomplete="current-password"
-								   autofocus>
-							<span class="icon is-small is-left">
-							  <i class="fas fa-lock"></i>
-							</span>
-						  </div>
-						  <p class="help is-danger" id="password-error" style="display:none;"></p>
-						</div>
-						<button type="submit" class="button is-primary" id="unlock-btn">Unlock</button>
-						<button type="button" class="button" id="cancel-btn">Cancel</button>
-					  </form>
-					</section>
-				  </div>
-				</div>
-			</div>
-		</div>
-		<!-- Graph -->
-		<div class="chart-container">
-		  <canvas id="myChart"></canvas>
-		</div>
-	  </div>
-	</div>
-
+  </div>
 </body>
 </html>
