@@ -15,13 +15,14 @@ This app is designed to be deployed on OpenShift and to setup some environment v
 The backend is split into database, authentication middleware, and route modules. Its API is organized as follows:
 
 - `/api/secure` is used to enter the shared password.
-- `/api/summary` returns the overview period and one summary object per dashboard section. It currently includes upload count, total bytes, and the top microscope for the one-month period ending today.
+- `/api/summary` returns the Uploads overview plus the latest OMERO fileset count, total storage, and daily billable SEK, with changes from the closest snapshot at least one month earlier.
 - `/api/uploads/summary` returns upload statistics for the selected microscope, time period, and data type.
 - `/api/uploads/history` returns the chart history for the same upload filters.
 - `/api/uploads/scopes` and `/api/uploads/microscopes` return the available upload scopes (currently, a scope identifies a microscope).
 - `/api/omero/history` returns total and billable daily storage from `group_storage_snapshot`, in either decimal GB or öre per day.
 - `/api/omero/groups` returns the OMERO groups available in the snapshot history.
-- `/api/omero/summary`, `/filesets`, `/policies`, and `/collector-runs` remain authenticated placeholders and currently return `501 Not Implemented`.
+- `/api/omero/summary` returns seven latest-snapshot metrics and their changes from the selected comparison date.
+- `/api/omero/filesets`, `/policies`, and `/collector-runs` remain authenticated placeholders and currently return `501 Not Implemented`.
 
 The frontend opens on an overview of Uploads, OMERO Storage, and Compute. Each card opens its own mutually exclusive dashboard view while keeping the shared university header and login control visible. Upload details are loaded only when the Uploads view is opened, and authentication is retained in the current browser tab.
 

@@ -61,13 +61,34 @@
         <article class="summary-card summary-card-active" id="omeroCard" role="button" tabindex="0" aria-label="Open OMERO Storage dashboard">
           <div class="card-heading">
             <span class="card-icon storage-icon"><i class="fas fa-database" aria-hidden="true"></i></span>
-            <span class="status-badge">Live</span>
           </div>
           <div>
             <p class="eyebrow">Managed repository</p>
             <h2 class="title is-4">OMERO Storage</h2>
           </div>
-          <p class="pending-copy">Daily total and billable storage history by OMERO group.</p>
+          <div class="summary-metrics">
+            <div>
+              <span>Filesets</span>
+              <span class="summary-value">
+                <strong id="overviewOmeroFilesets">—</strong>
+                <small id="overviewOmeroFilesetsChange">—</small>
+              </span>
+            </div>
+            <div>
+              <span>Total storage</span>
+              <span class="summary-value">
+                <strong id="overviewOmeroSize">—</strong>
+                <small id="overviewOmeroSizeChange">—</small>
+              </span>
+            </div>
+            <div>
+              <span>Billable</span>
+              <span class="summary-value">
+                <strong id="overviewOmeroBillable">—</strong>
+                <small id="overviewOmeroBillableChange">—</small>
+              </span>
+            </div>
+          </div>
           <div class="card-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
         </article>
 
@@ -185,7 +206,43 @@
       </div>
 
       <div class="upload-dashboard">
-        <aside class="metric-sidebar omero-card-space" aria-label="Reserved for OMERO summary cards"></aside>
+        <aside class="metric-sidebar" aria-label="OMERO storage summary">
+          <div class="metric-card">
+            <p>Total filesets</p>
+            <strong id="omeroFilesetCount">0</strong>
+            <span class="metric-change" id="omeroFilesetCountChange">—</span>
+          </div>
+          <div class="metric-card">
+            <p>Billable filesets</p>
+            <strong id="omeroBillableFilesetCount">0</strong>
+            <span class="metric-change" id="omeroBillableFilesetCountChange">—</span>
+          </div>
+          <div class="metric-card">
+            <p>Total storage (GB)</p>
+            <strong id="omeroTotalSize">0</strong>
+            <span class="metric-change" id="omeroTotalSizeChange">—</span>
+          </div>
+          <div class="metric-card">
+            <p>Agreement billable (GB)</p>
+            <strong id="omeroAgreementBillableSize">0</strong>
+            <span class="metric-change" id="omeroAgreementBillableSizeChange">—</span>
+          </div>
+          <div class="metric-card">
+            <p>Non-agreement billable (GB)</p>
+            <strong id="omeroNonAgreementBillableSize">0</strong>
+            <span class="metric-change" id="omeroNonAgreementBillableSizeChange">—</span>
+          </div>
+          <div class="metric-card">
+            <p>Overdue filesets</p>
+            <strong id="omeroOverdueFilesetCount">0</strong>
+            <span class="metric-change" id="omeroOverdueFilesetCountChange">—</span>
+          </div>
+          <div class="metric-card">
+            <p>Daily billable (SEK)</p>
+            <strong id="omeroBillableSek">0</strong>
+            <span class="metric-change" id="omeroBillableSekChange">—</span>
+          </div>
+        </aside>
 
         <div class="detail-content">
           <div class="filter-bar">

@@ -143,6 +143,51 @@ function renderOverview(summary) {
     formatBytes(Number(summary.uploads.total_bytes));
   document.getElementById('overviewTopMicroscope').textContent =
     summary.uploads.top_microscope || 'No uploads';
+
+  if (summary.omero) {
+    document.getElementById('overviewOmeroFilesets').textContent =
+      formatNumber(summary.omero.fileset_count.value, 0);
+    document.getElementById('overviewOmeroSize').textContent =
+      `${formatNumber(summary.omero.total_size_gb.value, 2)} GB`;
+    document.getElementById('overviewOmeroBillable').textContent =
+      `${formatNumber(summary.omero.billable_sek.value, 2)} SEK`;
+    renderChange(
+      'overviewOmeroFilesetsChange',
+      summary.omero.fileset_count.change_percent,
+      summary.omero.comparison_date,
+    );
+    renderChange(
+      'overviewOmeroSizeChange',
+      summary.omero.total_size_gb.change_percent,
+      summary.omero.comparison_date,
+    );
+    renderChange(
+      'overviewOmeroBillableChange',
+      summary.omero.billable_sek.change_percent,
+      summary.omero.comparison_date,
+    );
+  }
+}
+
+function formatNumber(value, maximumFractionDigits = 2) {
+  return Number(value).toLocaleString(undefined, { maximumFractionDigits });
+}
+
+function renderChange(elementId, change, comparisonDate) {
+  const element = document.getElementById(elementId);
+  element.classList.remove('change-positive', 'change-negative');
+
+  if (change === null || change === undefined) {
+    element.textContent = 'No comparison';
+    return;
+  }
+
+  const numericChange = Number(change);
+  const comparison = comparisonDate ? ` vs ${comparisonDate}` : '';
+  element.textContent = `${numericChange >= 0 ? '+' : ''}${numericChange.toFixed(1)}%${comparison}`;
+
+  if (numericChange > 0) element.classList.add('change-positive');
+  if (numericChange < 0) element.classList.add('change-negative');
 }
 
 async function fetchOverview() {
@@ -163,7 +208,7 @@ async function loadUploadsDashboard() {
 }
 
 async function loadOmeroDashboard() {
-  const requests = [fetchAndRenderOmeroHistory()];
+  const requests = [fetchAndRenderOmeroHistory(), fetchAndRenderOmeroSummary()];
   if (!omeroGroupsLoaded) requests.push(populateOmeroGroups());
   await Promise.all(requests);
 }
@@ -372,6 +417,55 @@ async function fetchAndRenderOmeroHistory() {
   }
 }
 
+async function fetchAndRenderOmeroSummary() {
+  const filters = getOmeroFilters();
+  const params = new URLSearchParams();
+
+  if (filters.startDate && filters.endDate) {
+    params.set('startDate', filters.startDate);
+    params.set('endDate', filters.endDate);
+  } else if (filters.period) {
+    params.set('period', filters.period);
+  }
+
+  try {
+    renderOmeroSummary(await fetchJson(`/api/omero/summary?${params}`));
+  } catch (error) {
+    console.error('Error loading OMERO summary:', error);
+  }
+}
+
+function renderOmeroSummary(summary) {
+  const cards = [
+    ['fileset_count', 'omeroFilesetCount', 'omeroFilesetCountChange', 0, ''],
+    ['billable_fileset_count', 'omeroBillableFilesetCount', 'omeroBillableFilesetCountChange', 0, ''],
+    ['total_size_gb', 'omeroTotalSize', 'omeroTotalSizeChange', 2, ' GB'],
+    [
+      'agreement_billable_size_gb',
+      'omeroAgreementBillableSize',
+      'omeroAgreementBillableSizeChange',
+      2,
+      ' GB',
+    ],
+    [
+      'non_agreement_billable_size_gb',
+      'omeroNonAgreementBillableSize',
+      'omeroNonAgreementBillableSizeChange',
+      2,
+      ' GB',
+    ],
+    ['overdue_fileset_count', 'omeroOverdueFilesetCount', 'omeroOverdueFilesetCountChange', 0, ''],
+    ['billable_sek', 'omeroBillableSek', 'omeroBillableSekChange', 2, ' SEK'],
+  ];
+
+  cards.forEach(([metricName, valueId, changeId, digits, suffix]) => {
+    const value = summary.metrics[metricName];
+    document.getElementById(valueId).textContent =
+      `${formatNumber(value.value, digits)}${suffix}`;
+    renderChange(changeId, value.change_percent, summary.comparison_date);
+  });
+}
+
 function renderOmeroChart(data) {
   if (omeroChartInstance) omeroChartInstance.destroy();
 
@@ -440,6 +534,13 @@ function updateCustomDateVisibility() {
 
 function updateOmeroCustomDateVisibility() {
   omeroCustomDateRange.style.display = omeroTimePeriodSelect.value === 'custom' ? 'flex' : 'none';
+}
+
+function refreshOmeroDashboard() {
+  return Promise.all([
+    fetchAndRenderOmeroHistory(),
+    fetchAndRenderOmeroSummary(),
+  ]);
 }
 
 async function handleUnlock() {
@@ -512,13 +613,13 @@ omeroTimePeriodSelect.addEventListener('change', () => {
     document.getElementById('omeroEndDate').valueAsDate = endDate;
   }
 
-  fetchAndRenderOmeroHistory();
+  refreshOmeroDashboard();
 });
 
 document.getElementById('omeroGroupSelect').addEventListener('change', fetchAndRenderOmeroHistory);
 document.getElementById('omeroMetricSelect').addEventListener('change', fetchAndRenderOmeroHistory);
-document.getElementById('omeroStartDate').addEventListener('change', fetchAndRenderOmeroHistory);
-document.getElementById('omeroEndDate').addEventListener('change', fetchAndRenderOmeroHistory);
+document.getElementById('omeroStartDate').addEventListener('change', refreshOmeroDashboard);
+document.getElementById('omeroEndDate').addEventListener('change', refreshOmeroDashboard);
 
 updateCustomDateVisibility();
 updateOmeroCustomDateVisibility();

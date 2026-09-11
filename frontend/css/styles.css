@@ -241,6 +241,33 @@ body {
   white-space: nowrap;
 }
 
+.summary-metrics .summary-value {
+  max-width: 58%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  color: var(--ink);
+}
+
+.summary-metrics .summary-value strong {
+  max-width: 100%;
+}
+
+.summary-value small,
+.metric-change {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.change-positive {
+  color: #187342 !important;
+}
+
+.change-negative {
+  color: #b42318 !important;
+}
+
 .pending-copy {
   line-height: 1.65;
 }
@@ -333,10 +360,6 @@ body {
   overflow-y: auto;
 }
 
-.omero-card-space {
-  min-height: 100%;
-}
-
 .metric-card {
   min-height: 76px;
   padding: 0.85rem 1rem;
@@ -360,6 +383,10 @@ body {
 .metric-card strong {
   color: var(--ink);
   font-size: 1.18rem;
+}
+
+.metric-change {
+  margin-top: 0.2rem;
 }
 
 .detail-content {
@@ -436,10 +463,6 @@ body {
   .metric-sidebar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     overflow: visible;
-  }
-
-  .omero-card-space {
-    display: none;
   }
 
   .chart-panel {
