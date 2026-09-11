@@ -1,6 +1,8 @@
 let chartInstance = null;
+let omeroChartInstance = null;
 let apiToken = sessionStorage.getItem('dashboardToken') || '';
 let scopesLoaded = false;
+let omeroGroupsLoaded = false;
 let pendingView = null;
 
 const overviewView = document.getElementById('overviewView');
@@ -9,6 +11,8 @@ const omeroView = document.getElementById('omeroView');
 const computeView = document.getElementById('computeView');
 const customDateRange = document.getElementById('customDateRange');
 const timePeriodSelect = document.getElementById('timePeriod');
+const omeroCustomDateRange = document.getElementById('omeroCustomDateRange');
+const omeroTimePeriodSelect = document.getElementById('omeroTimePeriod');
 const views = {
   overview: overviewView,
   uploads: uploadsView,
@@ -158,6 +162,12 @@ async function loadUploadsDashboard() {
   await fetchAndRenderStats();
 }
 
+async function loadOmeroDashboard() {
+  const requests = [fetchAndRenderOmeroHistory()];
+  if (!omeroGroupsLoaded) requests.push(populateOmeroGroups());
+  await Promise.all(requests);
+}
+
 async function activateView(viewName, { historyMode = 'push', loadData = true } = {}) {
   const selectedView = views[viewName] ? viewName : 'overview';
 
@@ -175,6 +185,7 @@ async function activateView(viewName, { historyMode = 'push', loadData = true } 
   if (!loadData || !apiToken) return;
   if (selectedView === 'overview') await fetchOverview();
   if (selectedView === 'uploads') await loadUploadsDashboard();
+  if (selectedView === 'omero') await loadOmeroDashboard();
 }
 
 function openDashboard(viewName) {
@@ -302,8 +313,133 @@ function updateChart(chartData, metric) {
   });
 }
 
+function getOmeroFilters() {
+  const filters = {
+    groupId: document.getElementById('omeroGroupSelect').value,
+    metric: document.getElementById('omeroMetricSelect').value,
+  };
+
+  if (omeroTimePeriodSelect.value === 'custom') {
+    const startDate = document.getElementById('omeroStartDate').value;
+    const endDate = document.getElementById('omeroEndDate').value;
+    if (startDate && endDate) Object.assign(filters, { startDate, endDate });
+  } else {
+    filters.period = omeroTimePeriodSelect.value;
+  }
+
+  return filters;
+}
+
+async function populateOmeroGroups() {
+  try {
+    const groups = await fetchJson('/api/omero/groups');
+    const groupSelect = document.getElementById('omeroGroupSelect');
+
+    groups.forEach((group) => {
+      const option = document.createElement('option');
+      option.value = group.id;
+      option.textContent = group.name;
+      groupSelect.appendChild(option);
+    });
+    omeroGroupsLoaded = true;
+  } catch (error) {
+    console.error('Error loading OMERO groups:', error);
+  }
+}
+
+async function fetchAndRenderOmeroHistory() {
+  const filters = getOmeroFilters();
+  const params = new URLSearchParams({
+    groupId: filters.groupId,
+    metric: filters.metric,
+  });
+  const errorElement = document.getElementById('omeroChartError');
+
+  if (filters.startDate && filters.endDate) {
+    params.set('startDate', filters.startDate);
+    params.set('endDate', filters.endDate);
+  } else if (filters.period) {
+    params.set('period', filters.period);
+  }
+
+  errorElement.hidden = true;
+
+  try {
+    renderOmeroChart(await fetchJson(`/api/omero/history?${params}`));
+  } catch (error) {
+    errorElement.textContent = error.message;
+    errorElement.hidden = false;
+  }
+}
+
+function renderOmeroChart(data) {
+  if (omeroChartInstance) omeroChartInstance.destroy();
+
+  const context = document.getElementById('omeroChart').getContext('2d');
+  const labels = data.history.map((point) => point.date);
+  const unit = data.unit;
+
+  omeroChartInstance = new Chart(context, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Total',
+          data: data.history.map((point) => point.total),
+          borderColor: '#2457d6',
+          backgroundColor: '#2457d6',
+          borderWidth: 2,
+          pointRadius: 2,
+          pointHoverRadius: 5,
+          tension: 0.2,
+        },
+        {
+          label: 'Billable',
+          data: data.history.map((point) => point.billable),
+          borderColor: '#d97706',
+          backgroundColor: '#d97706',
+          borderWidth: 2,
+          pointRadius: 2,
+          pointHoverRadius: 5,
+          tension: 0.2,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { title: { display: true, text: 'Date' } },
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: unit },
+        },
+      },
+      plugins: {
+        legend: { display: true, position: 'top' },
+        tooltip: {
+          callbacks: {
+            label(context) {
+              const value = Number(context.parsed.y).toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              });
+              return `${context.dataset.label}: ${value} ${unit}`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
 function updateCustomDateVisibility() {
   customDateRange.style.display = timePeriodSelect.value === 'custom' ? 'flex' : 'none';
+}
+
+function updateOmeroCustomDateVisibility() {
+  omeroCustomDateRange.style.display = omeroTimePeriodSelect.value === 'custom' ? 'flex' : 'none';
 }
 
 async function handleUnlock() {
@@ -365,7 +501,27 @@ document.getElementById('metricSelect').addEventListener('change', fetchAndRende
 document.getElementById('startDate').addEventListener('change', fetchAndRenderStats);
 document.getElementById('endDate').addEventListener('change', fetchAndRenderStats);
 
+omeroTimePeriodSelect.addEventListener('change', () => {
+  updateOmeroCustomDateVisibility();
+
+  if (omeroTimePeriodSelect.value === 'custom') {
+    const endDate = new Date();
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - 30);
+    document.getElementById('omeroStartDate').valueAsDate = startDate;
+    document.getElementById('omeroEndDate').valueAsDate = endDate;
+  }
+
+  fetchAndRenderOmeroHistory();
+});
+
+document.getElementById('omeroGroupSelect').addEventListener('change', fetchAndRenderOmeroHistory);
+document.getElementById('omeroMetricSelect').addEventListener('change', fetchAndRenderOmeroHistory);
+document.getElementById('omeroStartDate').addEventListener('change', fetchAndRenderOmeroHistory);
+document.getElementById('omeroEndDate').addEventListener('change', fetchAndRenderOmeroHistory);
+
 updateCustomDateVisibility();
+updateOmeroCustomDateVisibility();
 setAuthenticatedState(Boolean(apiToken));
 
 const initialView = getViewFromPath();

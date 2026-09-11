@@ -61,13 +61,13 @@
         <article class="summary-card summary-card-active" id="omeroCard" role="button" tabindex="0" aria-label="Open OMERO Storage dashboard">
           <div class="card-heading">
             <span class="card-icon storage-icon"><i class="fas fa-database" aria-hidden="true"></i></span>
-            <span class="status-badge muted">Coming soon</span>
+            <span class="status-badge">Live</span>
           </div>
           <div>
             <p class="eyebrow">Managed repository</p>
             <h2 class="title is-4">OMERO Storage</h2>
           </div>
-          <p class="pending-copy">Storage usage, groups, filesets, and policy status will appear here.</p>
+          <p class="pending-copy">Daily total and billable storage history by OMERO group.</p>
           <div class="card-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
         </article>
 
@@ -171,7 +171,7 @@
       </div>
     </section>
 
-    <section class="app-view future-view" id="omeroView" hidden>
+    <section class="app-view uploads-view" id="omeroView" hidden>
       <div class="detail-toolbar">
         <button class="button is-light dashboard-back" type="button">
           <span class="icon"><i class="fas fa-arrow-left" aria-hidden="true"></i></span>
@@ -183,10 +183,60 @@
         </div>
         <span></span>
       </div>
-      <div class="empty-dashboard">
-        <span class="card-icon storage-icon"><i class="fas fa-database" aria-hidden="true"></i></span>
-        <h2 class="title is-4">OMERO dashboard coming soon</h2>
-        <p>Storage usage, groups, filesets, and policy status will be shown here.</p>
+
+      <div class="upload-dashboard">
+        <aside class="metric-sidebar omero-card-space" aria-label="Reserved for OMERO summary cards"></aside>
+
+        <div class="detail-content">
+          <div class="filter-bar">
+            <div class="field">
+              <label class="label" for="omeroTimePeriod">Date</label>
+              <div class="select">
+                <select id="omeroTimePeriod">
+                  <option value="7">Last week</option>
+                  <option value="30" selected>Last month</option>
+                  <option value="365">Last year</option>
+                  <option value="custom">Custom range</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="omeroCustomDateRange" class="custom-date-range">
+              <div class="field">
+                <label class="label" for="omeroStartDate">From</label>
+                <input class="input" type="date" id="omeroStartDate">
+              </div>
+              <div class="field">
+                <label class="label" for="omeroEndDate">To</label>
+                <input class="input" type="date" id="omeroEndDate">
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="omeroGroupSelect">Group</label>
+              <div class="select">
+                <select id="omeroGroupSelect">
+                  <option value="all" selected>All groups</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="omeroMetricSelect">Type</label>
+              <div class="select">
+                <select id="omeroMetricSelect">
+                  <option value="bytes" selected>Storage (GB)</option>
+                  <option value="ore">Daily charge (öre)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <p class="notification is-danger is-light chart-error" id="omeroChartError" hidden></p>
+          <div class="chart-panel">
+            <canvas id="omeroChart"></canvas>
+          </div>
+        </div>
       </div>
     </section>
 

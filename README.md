@@ -19,9 +19,15 @@ The backend is split into database, authentication middleware, and route modules
 - `/api/uploads/summary` returns upload statistics for the selected microscope, time period, and data type.
 - `/api/uploads/history` returns the chart history for the same upload filters.
 - `/api/uploads/scopes` and `/api/uploads/microscopes` return the available upload scopes (currently, a scope identifies a microscope).
-- `/api/omero/summary`, `/history`, `/groups`, `/filesets`, `/policies`, and `/collector-runs` are authenticated placeholders for the OMERO dashboard and currently return `501 Not Implemented`.
+- `/api/omero/history` returns total and billable daily storage from `group_storage_snapshot`, in either decimal GB or öre per day.
+- `/api/omero/groups` returns the OMERO groups available in the snapshot history.
+- `/api/omero/summary`, `/filesets`, `/policies`, and `/collector-runs` remain authenticated placeholders and currently return `501 Not Implemented`.
 
 The frontend opens on an overview of Uploads, OMERO Storage, and Compute. Each card opens its own mutually exclusive dashboard view while keeping the shared university header and login control visible. Upload details are loaded only when the Uploads view is opened, and authentication is retained in the current browser tab.
+
+The OMERO Storage view graphs the daily total and billable series. In storage mode, values use decimal GB (`1 GB = 1,000,000,000 bytes`) to match collector billing. In öre mode, Total is the daily charge if all stored bytes were billable at each snapshot's applied rate, while Billable uses the stored `daily_charge_ore` value.
+
+The dashboard reads these tables through its existing statistics-database `PG*` connection. That PostgreSQL role needs `SELECT` on `public.group_storage_snapshot`. Do not use `omero-stats-reader-secret` here: that credential reads the source OMERO database, while the snapshot table belongs to `omerofilestats`.
 
 ## Security
 
