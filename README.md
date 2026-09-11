@@ -21,7 +21,7 @@ The backend is split into database, authentication middleware, and route modules
 - `/api/uploads/scopes` and `/api/uploads/microscopes` return the available upload scopes (currently, a scope identifies a microscope).
 - `/api/omero/summary`, `/history`, `/groups`, `/filesets`, `/policies`, and `/collector-runs` are authenticated placeholders for the OMERO dashboard and currently return `501 Not Implemented`.
 
-The frontend opens on an overview of Uploads, OMERO Storage, and Compute. The Uploads card navigates to the dedicated `/uploads` page; detailed data is loaded only when that page is opened. Authentication is retained for that navigation in the current browser tab.
+The frontend opens on an overview of Uploads, OMERO Storage, and Compute. Each card opens its own mutually exclusive dashboard view while keeping the shared university header and login control visible. Upload details are loaded only when the Uploads view is opened, and authentication is retained in the current browser tab.
 
 ## Security
 

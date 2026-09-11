@@ -28,7 +28,7 @@ app.use('/api/summary', summaryRouter);
 
 app.use(express.static(path.join(__dirname, 'frontend')));
 
-app.get('/uploads', (req, res) => {
+app.get(['/uploads', '/omero', '/compute'], (req, res) => {
   res.sendFile(path.join(__dirname, 'frontend/index.html'));
 });
 

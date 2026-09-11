@@ -1,15 +1,31 @@
 let chartInstance = null;
 let apiToken = sessionStorage.getItem('dashboardToken') || '';
 let scopesLoaded = false;
-let openUploadsAfterUnlock = false;
-
-const currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
-const isUploadsPage = currentPath === '/uploads';
+let pendingView = null;
 
 const overviewView = document.getElementById('overviewView');
 const uploadsView = document.getElementById('uploadsView');
+const omeroView = document.getElementById('omeroView');
+const computeView = document.getElementById('computeView');
 const customDateRange = document.getElementById('customDateRange');
 const timePeriodSelect = document.getElementById('timePeriod');
+const views = {
+  overview: overviewView,
+  uploads: uploadsView,
+  omero: omeroView,
+  compute: computeView,
+};
+const viewPaths = {
+  overview: '/',
+  uploads: '/uploads',
+  omero: '/omero',
+  compute: '/compute',
+};
+
+function getViewFromPath() {
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  return Object.keys(viewPaths).find((view) => viewPaths[view] === path) || 'overview';
+}
 
 function setAuthenticatedState(isAuthenticated) {
   const lockButton = document.getElementById('lock-icon');
@@ -137,30 +153,38 @@ async function fetchOverview() {
   }
 }
 
-function showOverview() {
-  if (isUploadsPage) {
-    window.location.assign('/');
-  } else {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
+async function loadUploadsDashboard() {
+  if (!scopesLoaded) await populateScopeDropdown();
+  await fetchAndRenderStats();
 }
 
-function showUploads() {
+async function activateView(viewName, { historyMode = 'push', loadData = true } = {}) {
+  const selectedView = views[viewName] ? viewName : 'overview';
+
+  Object.entries(views).forEach(([name, element]) => {
+    element.hidden = name !== selectedView;
+  });
+
+  if (historyMode !== 'none' && window.location.pathname !== viewPaths[selectedView]) {
+    const historyMethod = historyMode === 'replace' ? 'replaceState' : 'pushState';
+    window.history[historyMethod]({ view: selectedView }, '', viewPaths[selectedView]);
+  }
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  if (!loadData || !apiToken) return;
+  if (selectedView === 'overview') await fetchOverview();
+  if (selectedView === 'uploads') await loadUploadsDashboard();
+}
+
+function openDashboard(viewName) {
   if (!apiToken) {
-    openUploadsAfterUnlock = true;
+    pendingView = viewName;
     openAuthModal();
     return;
   }
 
-  window.location.assign('/uploads');
-}
-
-async function loadUploadsDashboard() {
-  overviewView.hidden = true;
-  uploadsView.hidden = false;
-
-  if (!scopesLoaded) await populateScopeDropdown();
-  await fetchAndRenderStats();
+  activateView(viewName);
 }
 
 function getSelectedFilters() {
@@ -283,31 +307,33 @@ function updateCustomDateVisibility() {
 }
 
 async function handleUnlock() {
-  if (isUploadsPage) {
-    await loadUploadsDashboard();
-    return;
-  }
-
-  if (openUploadsAfterUnlock) {
-    openUploadsAfterUnlock = false;
-    window.location.assign('/uploads');
-    return;
-  }
-
-  await fetchOverview();
+  const viewName = pendingView || getViewFromPath();
+  pendingView = null;
+  await activateView(viewName);
 }
 
 const openAuthModal = setupAuthentication(handleUnlock);
 
-document.getElementById('uploadsCard').addEventListener('click', showUploads);
-document.getElementById('uploadsCard').addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault();
-    showUploads();
-  }
+function makeCardNavigable(cardId, viewName) {
+  const card = document.getElementById(cardId);
+  card.addEventListener('click', () => openDashboard(viewName));
+  card.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openDashboard(viewName);
+    }
+  });
+}
+
+makeCardNavigable('uploadsCard', 'uploads');
+makeCardNavigable('omeroCard', 'omero');
+makeCardNavigable('computeCard', 'compute');
+
+document.getElementById('backToOverview').addEventListener('click', () => activateView('overview'));
+document.querySelectorAll('.dashboard-back').forEach((button) => {
+  button.addEventListener('click', () => activateView('overview'));
 });
-document.getElementById('backToOverview').addEventListener('click', showOverview);
-document.getElementById('overviewHome').addEventListener('click', showOverview);
+document.getElementById('overviewHome').addEventListener('click', () => activateView('overview'));
 
 document.getElementById('exportPageBtn').addEventListener('click', async () => {
   const exportButton = document.getElementById('exportPageBtn');
@@ -342,17 +368,23 @@ document.getElementById('endDate').addEventListener('change', fetchAndRenderStat
 updateCustomDateVisibility();
 setAuthenticatedState(Boolean(apiToken));
 
-if (isUploadsPage) {
-  overviewView.hidden = true;
-  uploadsView.hidden = false;
+const initialView = getViewFromPath();
+activateView(initialView, { historyMode: 'replace', loadData: Boolean(apiToken) });
 
-  if (apiToken) {
-    loadUploadsDashboard();
-  } else {
-    openAuthModal();
-  }
-} else {
-  overviewView.hidden = false;
-  uploadsView.hidden = true;
-  if (apiToken) fetchOverview();
+if (!apiToken && initialView !== 'overview') {
+  pendingView = initialView;
+  openAuthModal();
 }
+
+window.addEventListener('popstate', () => {
+  const viewName = getViewFromPath();
+
+  if (!apiToken && viewName !== 'overview') {
+    pendingView = viewName;
+    activateView(viewName, { historyMode: 'none', loadData: false });
+    openAuthModal();
+    return;
+  }
+
+  activateView(viewName, { historyMode: 'none' });
+});

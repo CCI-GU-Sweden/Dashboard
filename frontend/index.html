@@ -27,7 +27,7 @@
   </header>
 
   <main>
-    <section class="overview-view" id="overviewView">
+    <section class="app-view overview-view" id="overviewView">
       <div class="overview-heading">
         <p class="eyebrow">CCI infrastructure</p>
         <h1 class="title is-2">Overview</h1>
@@ -61,7 +61,7 @@
           <div class="card-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
         </article>
 
-        <article class="summary-card summary-card-pending" aria-disabled="true">
+        <article class="summary-card summary-card-active" id="omeroCard" role="button" tabindex="0" aria-label="Open OMERO Storage dashboard">
           <div class="card-heading">
             <span class="card-icon storage-icon"><i class="fas fa-database" aria-hidden="true"></i></span>
             <span class="status-badge muted">Coming soon</span>
@@ -71,10 +71,10 @@
             <h2 class="title is-4">OMERO Storage</h2>
           </div>
           <p class="pending-copy">Storage usage, groups, filesets, and policy status will appear here.</p>
-          <div class="card-link muted-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
+          <div class="card-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
         </article>
 
-        <article class="summary-card summary-card-pending" aria-disabled="true">
+        <article class="summary-card summary-card-active" id="computeCard" role="button" tabindex="0" aria-label="Open Compute dashboard">
           <div class="card-heading">
             <span class="card-icon compute-icon"><i class="fas fa-microchip" aria-hidden="true"></i></span>
             <span class="status-badge muted">Future</span>
@@ -84,14 +84,14 @@
             <h2 class="title is-4">Compute</h2>
           </div>
           <p class="pending-copy">Compute activity and capacity will be added as the platform grows.</p>
-          <div class="card-link muted-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
+          <div class="card-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
         </article>
       </div>
 
       <p class="notification is-danger is-light overview-error" id="overviewError" hidden></p>
     </section>
 
-    <section class="uploads-view" id="uploadsView" hidden>
+    <section class="app-view uploads-view" id="uploadsView" hidden>
       <div class="detail-toolbar">
         <button class="button is-light" id="backToOverview" type="button">
           <span class="icon"><i class="fas fa-arrow-left" aria-hidden="true"></i></span>
@@ -171,6 +171,44 @@
             <canvas id="myChart"></canvas>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section class="app-view future-view" id="omeroView" hidden>
+      <div class="detail-toolbar">
+        <button class="button is-light dashboard-back" type="button">
+          <span class="icon"><i class="fas fa-arrow-left" aria-hidden="true"></i></span>
+          <span>Overview</span>
+        </button>
+        <div class="detail-title">
+          <p class="eyebrow">Overview / OMERO Storage</p>
+          <h1 class="title is-4">OMERO Storage</h1>
+        </div>
+        <span></span>
+      </div>
+      <div class="empty-dashboard">
+        <span class="card-icon storage-icon"><i class="fas fa-database" aria-hidden="true"></i></span>
+        <h2 class="title is-4">OMERO dashboard coming soon</h2>
+        <p>Storage usage, groups, filesets, and policy status will be shown here.</p>
+      </div>
+    </section>
+
+    <section class="app-view future-view" id="computeView" hidden>
+      <div class="detail-toolbar">
+        <button class="button is-light dashboard-back" type="button">
+          <span class="icon"><i class="fas fa-arrow-left" aria-hidden="true"></i></span>
+          <span>Overview</span>
+        </button>
+        <div class="detail-title">
+          <p class="eyebrow">Overview / Compute</p>
+          <h1 class="title is-4">Compute</h1>
+        </div>
+        <span></span>
+      </div>
+      <div class="empty-dashboard">
+        <span class="card-icon compute-icon"><i class="fas fa-microchip" aria-hidden="true"></i></span>
+        <h2 class="title is-4">Compute dashboard coming soon</h2>
+        <p>Compute activity and capacity will be shown here.</p>
       </div>
     </section>
   </main>
