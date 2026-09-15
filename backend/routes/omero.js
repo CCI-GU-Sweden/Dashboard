@@ -6,10 +6,107 @@ const { authMiddleware } = require('../middleware/auth');
 const router = express.Router();
 
 const pendingEndpoints = [
-  '/filesets',
   '/policies',
   '/collector-runs',
 ];
+
+const FILESET_SORT_COLUMNS = {
+  fileset_id: 'fileset_id',
+  username: 'username',
+  firstname: 'firstname',
+  lastname: 'lastname',
+  group_id: 'group_id',
+  group_name: 'group_name',
+  imported_at: 'imported_at',
+  source_file_count: 'source_file_count',
+  image_count: 'image_count',
+  total_bytes: 'total_bytes',
+  deleted_at: 'deleted_at',
+};
+
+function parsePositiveInteger(value, fallback, maximum) {
+  if (value === undefined) return fallback;
+  if (!/^\d+$/.test(value)) return null;
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) return null;
+  return parsed;
+}
+
+function buildFilesetQuery(query) {
+  const page = parsePositiveInteger(query.page, 1, 1000000);
+  const pageSize = parsePositiveInteger(query.pageSize, 50, 100);
+  if (page === null || pageSize === null) return null;
+
+  const status = query.status || 'active';
+  if (!['active', 'deleted', 'all'].includes(status)) return null;
+
+  const imported = query.imported || 'all';
+  const importedDays = { '30d': 30, '90d': 90, '1y': 365 }[imported];
+  if (imported !== 'all' && !importedDays) return null;
+
+  const size = query.size || 'any';
+  const minimumBytes = {
+    '10gb': 10_000_000_000,
+    '100gb': 100_000_000_000,
+    '1tb': 1_000_000_000_000,
+  }[size];
+  if (size !== 'any' && !minimumBytes) return null;
+
+  const sort = query.sort || 'total_bytes';
+  const sortColumn = FILESET_SORT_COLUMNS[sort];
+  if (!sortColumn) return null;
+
+  const requestedOrder = query.order || 'desc';
+  if (typeof requestedOrder !== 'string') return null;
+  const order = requestedOrder.toLowerCase();
+  if (!['asc', 'desc'].includes(order)) return null;
+
+  const search = String(query.search || '').trim();
+  if (search.length > 200) return null;
+
+  const filters = [];
+  const values = [];
+  const addValue = (value) => {
+    values.push(value);
+    return `$${values.length}`;
+  };
+
+  if (status === 'active') filters.push('deleted_at IS NULL');
+  if (status === 'deleted') filters.push('deleted_at IS NOT NULL');
+
+  if (search) {
+    const placeholder = addValue(`%${search}%`);
+    filters.push(`(
+      username ILIKE ${placeholder}
+      OR firstname ILIKE ${placeholder}
+      OR lastname ILIKE ${placeholder}
+      OR group_name ILIKE ${placeholder}
+      OR fileset_id::text ILIKE ${placeholder}
+    )`);
+  }
+
+  if (query.group_id && query.group_id !== 'all') {
+    if (!/^\d+$/.test(query.group_id)) return null;
+    filters.push(`group_id = ${addValue(query.group_id)}::bigint`);
+  }
+
+  if (importedDays) {
+    filters.push(`imported_at >= CURRENT_TIMESTAMP - (${addValue(importedDays)}::int * INTERVAL '1 day')`);
+  }
+
+  if (minimumBytes) filters.push(`total_bytes > ${addValue(minimumBytes)}::numeric`);
+
+  return {
+    page,
+    pageSize,
+    sort,
+    order,
+    values,
+    where: filters.length ? `WHERE ${filters.join(' AND ')}` : '',
+    orderBy: `${sortColumn} ${order.toUpperCase()} NULLS LAST, fileset_id ASC`,
+  };
+}
 
 function isIsoDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return false;
@@ -150,6 +247,57 @@ router.get('/groups', authMiddleware, async (req, res) => {
   }
 });
 
+router.get('/filesets', authMiddleware, async (req, res) => {
+  const filesetQuery = buildFilesetQuery(req.query);
+
+  if (!filesetQuery) {
+    return res.status(400).json({ error: 'Invalid fileset filters, pagination, or sorting' });
+  }
+
+  const { page, pageSize, values, where, orderBy } = filesetQuery;
+  const limitPlaceholder = `$${values.length + 1}`;
+  const offsetPlaceholder = `$${values.length + 2}`;
+  const dataValues = [...values, pageSize, (page - 1) * pageSize];
+
+  try {
+    const [rowsResult, filteredResult, totalResult] = await Promise.all([
+      pool.query(`
+        SELECT
+          fileset_id,
+          username,
+          firstname,
+          lastname,
+          group_id,
+          group_name,
+          imported_at,
+          source_file_count,
+          image_count,
+          total_bytes,
+          deleted_at
+        FROM public.omero_fileset
+        ${where}
+        ORDER BY ${orderBy}
+        LIMIT ${limitPlaceholder}::int OFFSET ${offsetPlaceholder}::int
+      `, dataValues),
+      pool.query(`SELECT COUNT(*)::int AS count FROM public.omero_fileset ${where}`, values),
+      pool.query('SELECT COUNT(*)::int AS count FROM public.omero_fileset'),
+    ]);
+
+    const filteredTotal = filteredResult.rows[0].count;
+    return res.json({
+      data: rowsResult.rows,
+      page,
+      pageSize,
+      total: totalResult.rows[0].count,
+      filteredTotal,
+      totalPages: Math.ceil(filteredTotal / pageSize),
+    });
+  } catch (error) {
+    console.error('Failed to fetch OMERO filesets:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/summary', authMiddleware, async (req, res) => {
   const comparison = getSummaryComparison(req.query);
 
@@ -233,3 +381,4 @@ pendingEndpoints.forEach((endpoint) => {
 });
 
 module.exports = router;
+module.exports.buildFilesetQuery = buildFilesetQuery;

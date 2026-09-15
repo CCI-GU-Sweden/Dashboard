@@ -6,10 +6,12 @@
   <title>CCI Data Dashboard</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link rel="stylesheet" href="/vendor/datatables-dt/dataTables.dataTables.min.css">
   <link rel="stylesheet" href="/css/styles.css">
   <link rel="icon" type="image/x-icon" href="/assets/favicon.ico">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="/vendor/datatables/dataTables.min.js"></script>
   <script src="/js/barplot.js" defer></script>
 </head>
 <body>
@@ -293,6 +295,49 @@
           <div class="chart-panel">
             <canvas id="omeroChart"></canvas>
           </div>
+
+          <section class="fileset-panel" aria-labelledby="filesetTableTitle">
+            <div class="fileset-heading">
+              <div>
+                <p class="eyebrow">Inventory</p>
+                <h2 class="title is-5" id="filesetTableTitle">Filesets</h2>
+              </div>
+              <label class="fileset-search">
+                <span class="is-sr-only">Search filesets</span>
+                <input class="input" id="filesetSearch" type="search" placeholder="Search owner, group, or ID">
+              </label>
+            </div>
+
+            <div class="fileset-filters" aria-label="Fileset filters">
+              <label class="field">
+                <span class="label">Group</span>
+                <span class="select"><select id="filesetGroupSelect"><option value="all">All groups</option></select></span>
+              </label>
+              <label class="field">
+                <span class="label">Status</span>
+                <span class="select"><select id="filesetStatusSelect"><option value="active">Active</option><option value="deleted">Deleted</option><option value="all">All</option></select></span>
+              </label>
+              <label class="field">
+                <span class="label">Imported</span>
+                <span class="select"><select id="filesetImportedSelect"><option value="30d">Last 30 days</option><option value="90d">Last 90 days</option><option value="1y">Last year</option><option value="all" selected>All</option></select></span>
+              </label>
+              <label class="field">
+                <span class="label">Size</span>
+                <span class="select"><select id="filesetSizeSelect"><option value="any">Any</option><option value="10gb">&gt; 10 GB</option><option value="100gb">&gt; 100 GB</option><option value="1tb">&gt; 1 TB</option></select></span>
+              </label>
+              <label class="field">
+                <span class="label">Order</span>
+                <span class="select"><select id="filesetOrderSelect"><option value="largest">Largest filesets</option><option value="oldest">Oldest filesets</option><option value="newest">Newest filesets</option><option value="billable" disabled>Billable only — policy data required</option><option value="overdue" disabled>Overdue only — policy data required</option></select></span>
+              </label>
+            </div>
+
+            <p class="notification is-danger is-light chart-error" id="filesetTableError" hidden></p>
+            <div class="fileset-table-wrap">
+              <table id="filesetTable" class="display" style="width:100%">
+                <thead><tr><th>ID</th><th>Owner</th><th>Group</th><th>Imported</th><th>Source files</th><th>Images</th><th>Size</th><th>Status</th></tr></thead>
+              </table>
+            </div>
+          </section>
         </div>
       </div>
     </section>

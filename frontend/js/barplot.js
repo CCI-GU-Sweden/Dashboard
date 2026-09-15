@@ -1,5 +1,6 @@
 let chartInstance = null;
 let omeroChartInstance = null;
+let filesetTableInstance = null;
 let apiToken = sessionStorage.getItem('dashboardToken') || '';
 let scopesLoaded = false;
 let omeroGroupsLoaded = false;
@@ -211,6 +212,7 @@ async function loadOmeroDashboard() {
   const requests = [fetchAndRenderOmeroHistory(), fetchAndRenderOmeroSummary()];
   if (!omeroGroupsLoaded) requests.push(populateOmeroGroups());
   await Promise.all(requests);
+  initializeFilesetTable();
 }
 
 async function activateView(viewName, { historyMode = 'push', loadData = true } = {}) {
@@ -379,17 +381,110 @@ async function populateOmeroGroups() {
   try {
     const groups = await fetchJson('/api/omero/groups');
     const groupSelect = document.getElementById('omeroGroupSelect');
+    const filesetGroupSelect = document.getElementById('filesetGroupSelect');
 
     groups.forEach((group) => {
       const option = document.createElement('option');
       option.value = group.id;
       option.textContent = group.name;
       groupSelect.appendChild(option);
+      filesetGroupSelect.appendChild(option.cloneNode(true));
     });
     omeroGroupsLoaded = true;
   } catch (error) {
     console.error('Error loading OMERO groups:', error);
   }
+}
+
+function formatFilesetDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
+}
+
+function getFilesetSort() {
+  const preset = document.getElementById('filesetOrderSelect').value;
+  return {
+    largest: ['total_bytes', 'desc'],
+    oldest: ['imported_at', 'asc'],
+    newest: ['imported_at', 'desc'],
+  }[preset] || ['total_bytes', 'desc'];
+}
+
+function reloadFilesetTable() {
+  if (filesetTableInstance) filesetTableInstance.ajax.reload();
+}
+
+function initializeFilesetTable() {
+  if (filesetTableInstance) {
+    filesetTableInstance.ajax.reload(null, false);
+    return;
+  }
+
+  const errorElement = document.getElementById('filesetTableError');
+  filesetTableInstance = new DataTable('#filesetTable', {
+    processing: true,
+    serverSide: true,
+    searching: false,
+    ordering: false,
+    pageLength: 50,
+    lengthMenu: [25, 50, 100],
+    scrollX: true,
+    ajax(data, callback) {
+      const [sort, order] = getFilesetSort();
+      const params = new URLSearchParams({
+        search: document.getElementById('filesetSearch').value.trim(),
+        group_id: document.getElementById('filesetGroupSelect').value,
+        status: document.getElementById('filesetStatusSelect').value,
+        imported: document.getElementById('filesetImportedSelect').value,
+        size: document.getElementById('filesetSizeSelect').value,
+        page: String(Math.floor(data.start / data.length) + 1),
+        pageSize: String(data.length),
+        sort,
+        order,
+      });
+
+      errorElement.hidden = true;
+      fetchJson(`/api/omero/filesets?${params}`)
+        .then((result) => callback({
+          draw: data.draw,
+          recordsTotal: result.total,
+          recordsFiltered: result.filteredTotal,
+          data: result.data,
+        }))
+        .catch((error) => {
+          errorElement.textContent = error.message;
+          errorElement.hidden = false;
+          callback({ draw: data.draw, recordsTotal: 0, recordsFiltered: 0, data: [] });
+        });
+    },
+    columns: [
+      { data: 'fileset_id', render: DataTable.render.text() },
+      {
+        data: null,
+        render(data, type, row) {
+          const fullName = [row.firstname, row.lastname].filter(Boolean).join(' ');
+          const owner = fullName ? `${fullName} (${row.username})` : row.username || '—';
+          return type === 'display' ? DataTable.render.text().display(owner) : row.username;
+        },
+      },
+      { data: 'group_name', defaultContent: '—', render: DataTable.render.text() },
+      { data: 'imported_at', render: (value) => formatFilesetDate(value) },
+      { data: 'source_file_count', render: DataTable.render.number(null, null, 0) },
+      { data: 'image_count', render: DataTable.render.number(null, null, 0) },
+      { data: 'total_bytes', render: (value) => formatBytes(Number(value)) },
+      {
+        data: 'deleted_at',
+        render(value, type) {
+          if (type !== 'display') return value || '';
+          return value
+            ? `<span class="fileset-status is-deleted" title="Deleted ${formatFilesetDate(value)}">Deleted</span>`
+            : '<span class="fileset-status is-active">Active</span>';
+        },
+      },
+    ],
+  });
 }
 
 async function fetchAndRenderOmeroHistory() {
@@ -620,6 +715,19 @@ document.getElementById('omeroGroupSelect').addEventListener('change', fetchAndR
 document.getElementById('omeroMetricSelect').addEventListener('change', fetchAndRenderOmeroHistory);
 document.getElementById('omeroStartDate').addEventListener('change', refreshOmeroDashboard);
 document.getElementById('omeroEndDate').addEventListener('change', refreshOmeroDashboard);
+
+let filesetSearchTimer;
+document.getElementById('filesetSearch').addEventListener('input', () => {
+  window.clearTimeout(filesetSearchTimer);
+  filesetSearchTimer = window.setTimeout(reloadFilesetTable, 300);
+});
+[
+  'filesetGroupSelect',
+  'filesetStatusSelect',
+  'filesetImportedSelect',
+  'filesetSizeSelect',
+  'filesetOrderSelect',
+].forEach((id) => document.getElementById(id).addEventListener('change', reloadFilesetTable));
 
 updateCustomDateVisibility();
 updateOmeroCustomDateVisibility();
