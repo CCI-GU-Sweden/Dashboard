@@ -210,7 +210,11 @@ async function loadUploadsDashboard() {
 }
 
 async function loadOmeroDashboard() {
-  const requests = [fetchAndRenderOmeroHistory(), fetchAndRenderOmeroSummary()];
+  const requests = [
+    fetchAndRenderOmeroHistory(),
+    fetchAndRenderOmeroSummary(),
+    fetchAndRenderGroupRanking(),
+  ];
   if (!omeroGroupsLoaded) requests.push(populateOmeroGroups());
   await Promise.all(requests);
   initializeFilesetTable();
@@ -635,6 +639,120 @@ async function fetchAndRenderOmeroSummary() {
   }
 }
 
+async function fetchAndRenderGroupRanking() {
+  const filters = getOmeroFilters();
+  const params = new URLSearchParams();
+  const errorElement = document.getElementById('groupRankingError');
+
+  if (filters.startDate && filters.endDate) {
+    params.set('startDate', filters.startDate);
+    params.set('endDate', filters.endDate);
+  } else if (filters.period) {
+    params.set('period', filters.period);
+  }
+
+  errorElement.hidden = true;
+  try {
+    renderGroupRanking(await fetchJson(`/api/omero/groups/ranking?${params}`));
+  } catch (error) {
+    errorElement.textContent = error.message;
+    errorElement.hidden = false;
+  }
+}
+
+function formatTrend(change) {
+  if (change === null || change === undefined) return 'No comparison';
+  const numericChange = Number(change);
+  return `${numericChange >= 0 ? '+' : ''}${numericChange.toFixed(1)}%`;
+}
+
+function renderGroupRanking(data) {
+  const chart = document.getElementById('groupRankingChart');
+  const period = document.getElementById('groupRankingPeriod');
+  const groups = data.groups || [];
+  period.textContent = data.comparison_date
+    ? `${data.snapshot_date} vs ${data.comparison_date}`
+    : data.snapshot_date || 'No snapshots available';
+
+  if (!groups.length) {
+    Plotly.purge(chart);
+    chart.textContent = 'No group storage data is available for this period.';
+    chart.classList.add('is-empty');
+    return;
+  }
+
+  chart.classList.remove('is-empty');
+  chart.textContent = '';
+  const labels = groups.map((group) => group.group_name);
+  const values = groups.map((group) => Number(group.billable_gb));
+  const text = groups.map((group) =>
+    `${formatNumber(group.billable_gb, 1)} GB · ${formatTrend(group.change_percent)}`);
+  const customdata = groups.map((group) => [
+    group.group_id,
+    formatTrend(group.change_percent),
+    group.billable_fileset_count,
+    group.daily_charge_sek,
+    group.previous_billable_gb === null
+      ? 'No comparison'
+      : `${formatNumber(group.previous_billable_gb, 2)} GB`,
+  ]);
+
+  Plotly.react(chart, [{
+    type: 'bar',
+    orientation: 'h',
+    x: values,
+    y: labels,
+    text,
+    textposition: 'outside',
+    cliponaxis: false,
+    marker: { color: '#2457d6' },
+    customdata,
+    hovertemplate: [
+      '<b>%{y}</b>',
+      '<br>Billable storage: %{x:,.2f} GB',
+      '<br>Change: %{customdata[1]}',
+      '<br>Previous billable storage: %{customdata[4]}',
+      '<br>Billable filesets: %{customdata[2]:,.0f}',
+      '<br>Daily charge: %{customdata[3]:,.2f} SEK',
+      '<extra></extra>',
+    ].join(''),
+  }], {
+    height: Math.max(360, groups.length * 42 + 100),
+    margin: { l: 170, r: 150, t: 10, b: 55 },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    font: { family: 'inherit', color: '#24324a' },
+    bargap: 0.28,
+    xaxis: {
+      title: 'Billable storage (GB)',
+      rangemode: 'tozero',
+      gridcolor: '#e2e8f0',
+      zeroline: false,
+    },
+    yaxis: {
+      categoryorder: 'array',
+      categoryarray: labels,
+      autorange: 'reversed',
+      automargin: true,
+    },
+  }, {
+    responsive: true,
+    displayModeBar: false,
+  });
+
+  if (typeof chart.removeAllListeners === 'function') chart.removeAllListeners('plotly_click');
+  chart.on('plotly_click', (event) => {
+    const groupId = String(event.points[0].customdata[0]);
+    const groupSelect = document.getElementById('filesetGroupSelect');
+    groupSelect.value = groupId;
+    reloadFilesetTable();
+    document.getElementById('filesetTableTitle').scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  });
+}
+
 function renderOmeroSummary(summary) {
   const cards = [
     ['fileset_count', 'omeroFilesetCount', 'omeroFilesetCountChange', 0, ''],
@@ -740,6 +858,7 @@ function refreshOmeroDashboard() {
   return Promise.all([
     fetchAndRenderOmeroHistory(),
     fetchAndRenderOmeroSummary(),
+    fetchAndRenderGroupRanking(),
   ]);
 }
 

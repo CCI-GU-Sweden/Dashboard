@@ -21,6 +21,7 @@ The backend is split into database, authentication middleware, and route modules
 - `/api/uploads/scopes` and `/api/uploads/microscopes` return the available upload scopes (currently, a scope identifies a microscope).
 - `/api/omero/history` returns total and billable daily storage from `group_storage_snapshot`, in either decimal GB or öre per day.
 - `/api/omero/groups` returns the OMERO groups available in the snapshot history.
+- `/api/omero/groups/ranking` returns the top 10 groups by current billable storage, including change from the selected comparison period, billable Fileset count, and daily charge.
 - `/api/omero/summary` returns seven latest-snapshot metrics and their changes from the selected comparison date.
 - `/api/omero/filesets` returns a searchable, filterable, sortable page of `public.omero_fileset` rows. It accepts `search`, `group_id`, `status`, `imported`, `size`, `billing`, `page`, `pageSize`, `sort`, and `order` query parameters. `billing` supports policy-derived `billable` and `overdue` filters.
 - `/api/omero/filesets/:filesetId` returns expandable detail metadata: OMERO project/dataset locations, first and last collection sightings, uncontained-image and missing-run counts, and source filenames. Stored source `client_path` values are intentionally excluded.

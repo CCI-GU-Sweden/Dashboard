@@ -270,6 +270,76 @@ router.get('/groups', authMiddleware, async (req, res) => {
   }
 });
 
+router.get('/groups/ranking', authMiddleware, async (req, res) => {
+  const comparison = getSummaryComparison(req.query);
+
+  if (!comparison) {
+    return res.status(400).json({ error: 'Invalid date range or period' });
+  }
+
+  try {
+    const result = await pool.query(`
+      WITH current_snapshot AS (
+        SELECT MAX(snapshot_date) AS snapshot_date
+        FROM public.group_storage_snapshot
+        WHERE snapshot_date <= ${comparison.currentLimit}
+      ),
+      comparison_snapshot AS (
+        SELECT MAX(snapshot.snapshot_date) AS snapshot_date
+        FROM public.group_storage_snapshot AS snapshot
+        CROSS JOIN current_snapshot
+        WHERE snapshot.snapshot_date <= ${comparison.comparisonTarget}
+      )
+      SELECT
+        current_group.group_id,
+        current_group.group_name,
+        current_group.snapshot_date,
+        comparison_snapshot.snapshot_date AS comparison_date,
+        current_group.billable_bytes::numeric / 1000000000::numeric AS billable_gb,
+        previous.billable_bytes::numeric / 1000000000::numeric AS previous_billable_gb,
+        current_group.billable_fileset_count,
+        current_group.daily_charge_ore::numeric / 100::numeric AS daily_charge_sek
+      FROM public.group_storage_snapshot AS current_group
+      CROSS JOIN current_snapshot
+      CROSS JOIN comparison_snapshot
+      LEFT JOIN public.group_storage_snapshot AS previous
+        ON previous.snapshot_date = comparison_snapshot.snapshot_date
+        AND previous.group_id = current_group.group_id
+      WHERE current_group.snapshot_date = current_snapshot.snapshot_date
+      ORDER BY current_group.billable_bytes DESC, current_group.group_name, current_group.group_id
+      LIMIT 10
+    `, comparison.values);
+
+    const formatDate = (value) => {
+      if (!value) return null;
+      return value instanceof Date ? value.toISOString().slice(0, 10) : value;
+    };
+
+    return res.json({
+      snapshot_date: formatDate(result.rows[0]?.snapshot_date),
+      comparison_date: formatDate(result.rows[0]?.comparison_date),
+      groups: result.rows.map((row) => {
+        const billableGb = Number(row.billable_gb) || 0;
+        const previousBillableGb = row.previous_billable_gb === null
+          ? null
+          : Number(row.previous_billable_gb) || 0;
+        return {
+          group_id: String(row.group_id),
+          group_name: row.group_name,
+          billable_gb: billableGb,
+          previous_billable_gb: previousBillableGb,
+          change_percent: percentageChange(billableGb, previousBillableGb),
+          billable_fileset_count: Number(row.billable_fileset_count) || 0,
+          daily_charge_sek: Number(row.daily_charge_sek) || 0,
+        };
+      }),
+    });
+  } catch (error) {
+    console.error('Failed to fetch OMERO group ranking:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/filesets', authMiddleware, async (req, res) => {
   const filesetQuery = buildFilesetQuery(req.query);
 

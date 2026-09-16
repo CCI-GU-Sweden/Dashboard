@@ -449,6 +449,54 @@ body {
   border-radius: 12px;
 }
 
+.group-ranking-panel {
+  margin-bottom: 1rem;
+  padding: 1.2rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.group-ranking-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.group-ranking-heading .title {
+  margin: 0;
+}
+
+#groupRankingPeriod,
+.group-ranking-hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+#groupRankingPeriod,
+.group-ranking-hint {
+  margin: 0;
+}
+
+#groupRankingChart {
+  width: 100%;
+  min-height: 360px;
+}
+
+#groupRankingChart.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.group-ranking-hint {
+  margin-top: 0.5rem;
+  text-align: right;
+}
+
 #omeroView {
   height: auto;
   min-height: calc(100vh - 76px);
@@ -653,6 +701,11 @@ tr.details-open .fileset-detail-button i {
 
   .fileset-details .is-wide {
     grid-column: auto;
+  }
+
+  .group-ranking-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .detail-toolbar {

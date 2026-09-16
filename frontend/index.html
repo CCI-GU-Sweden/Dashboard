@@ -12,6 +12,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="/vendor/datatables/dataTables.min.js"></script>
+  <script src="/vendor/plotly/plotly.min.js"></script>
   <script src="/js/barplot.js" defer></script>
 </head>
 <body>
@@ -297,6 +298,19 @@
           </div>
         </div>
       </div>
+
+      <section class="group-ranking-panel" aria-labelledby="groupRankingTitle">
+        <div class="group-ranking-heading">
+          <div>
+            <p class="eyebrow">Top 10 groups</p>
+            <h2 class="title is-5" id="groupRankingTitle">Billable storage by group</h2>
+          </div>
+          <p id="groupRankingPeriod">—</p>
+        </div>
+        <p class="notification is-danger is-light chart-error" id="groupRankingError" hidden></p>
+        <div id="groupRankingChart" role="img" aria-label="Top ten groups ranked by billable storage"></div>
+        <p class="group-ranking-hint">Select a bar to filter the fileset table by that group.</p>
+      </section>
 
       <section class="fileset-panel" aria-labelledby="filesetTableTitle">
             <div class="fileset-heading">

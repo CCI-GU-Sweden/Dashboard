@@ -28,6 +28,7 @@ app.use('/api/summary', summaryRouter);
 
 app.use('/vendor/datatables', express.static(path.join(__dirname, 'node_modules/datatables.net/js')));
 app.use('/vendor/datatables-dt', express.static(path.join(__dirname, 'node_modules/datatables.net-dt/css')));
+app.use('/vendor/plotly', express.static(path.join(__dirname, 'node_modules/plotly.js-dist-min')));
 app.use(express.static(path.join(__dirname, 'frontend')));
 
 app.get(['/uploads', '/omero', '/compute'], (req, res) => {

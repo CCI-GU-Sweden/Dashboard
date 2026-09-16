@@ -14,7 +14,8 @@
     "express": "^4.18.2",
     "express-rate-limit": "^7.5.0",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.15.6"
+    "pg": "^8.15.6",
+    "plotly.js-dist-min": "^4.1.1"
   },
   "overrides": {
     "qs": "^6.16.0"
