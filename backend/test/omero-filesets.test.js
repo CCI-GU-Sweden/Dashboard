@@ -8,7 +8,7 @@ test('fileset query defaults to active filesets ordered by size', () => {
 
   assert.equal(query.page, 1);
   assert.equal(query.pageSize, 50);
-  assert.equal(query.where, 'WHERE deleted_at IS NULL');
+  assert.equal(query.where, 'WHERE f.deleted_at IS NULL');
   assert.equal(query.orderBy, 'total_bytes DESC NULLS LAST, fileset_id ASC');
   assert.deepEqual(query.values, []);
 });
@@ -41,4 +41,15 @@ test('fileset query rejects invalid pagination and SQL ordering input', () => {
   assert.equal(buildFilesetQuery({ sort: 'total_bytes; DROP TABLE omero_fileset' }), null);
   assert.equal(buildFilesetQuery({ order: 'desc; DROP TABLE omero_fileset' }), null);
   assert.equal(buildFilesetQuery({ group_id: '12 OR 1=1' }), null);
+  assert.equal(buildFilesetQuery({ billing: 'anything' }), null);
+});
+
+test('fileset query applies policy-based billable and overdue filters', () => {
+  const billable = buildFilesetQuery({ billing: 'billable' });
+  const overdue = buildFilesetQuery({ billing: 'overdue' });
+
+  assert.match(billable.where, /sp\.policy_type = 'AGREEMENT'/);
+  assert.match(billable.where, /sp\.billing_grace_days/);
+  assert.match(overdue.where, /sp\.policy_type = 'TEMPORARY'/);
+  assert.doesNotMatch(overdue.where, /sp\.billing_grace_days/);
 });

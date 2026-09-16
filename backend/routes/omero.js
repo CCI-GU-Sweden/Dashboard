@@ -53,6 +53,9 @@ function buildFilesetQuery(query) {
   }[size];
   if (size !== 'any' && !minimumBytes) return null;
 
+  const billing = query.billing || 'all';
+  if (!['all', 'billable', 'overdue'].includes(billing)) return null;
+
   const sort = query.sort || 'total_bytes';
   const sortColumn = FILESET_SORT_COLUMNS[sort];
   if (!sortColumn) return null;
@@ -72,30 +75,50 @@ function buildFilesetQuery(query) {
     return `$${values.length}`;
   };
 
-  if (status === 'active') filters.push('deleted_at IS NULL');
-  if (status === 'deleted') filters.push('deleted_at IS NOT NULL');
+  if (status === 'active') filters.push('f.deleted_at IS NULL');
+  if (status === 'deleted') filters.push('f.deleted_at IS NOT NULL');
 
   if (search) {
     const placeholder = addValue(`%${search}%`);
     filters.push(`(
-      username ILIKE ${placeholder}
-      OR firstname ILIKE ${placeholder}
-      OR lastname ILIKE ${placeholder}
-      OR group_name ILIKE ${placeholder}
-      OR fileset_id::text ILIKE ${placeholder}
+      f.username ILIKE ${placeholder}
+      OR f.firstname ILIKE ${placeholder}
+      OR f.lastname ILIKE ${placeholder}
+      OR f.group_name ILIKE ${placeholder}
+      OR f.fileset_id::text ILIKE ${placeholder}
     )`);
   }
 
   if (query.group_id && query.group_id !== 'all') {
     if (!/^\d+$/.test(query.group_id)) return null;
-    filters.push(`group_id = ${addValue(query.group_id)}::bigint`);
+    filters.push(`f.group_id = ${addValue(query.group_id)}::bigint`);
   }
 
   if (importedDays) {
-    filters.push(`imported_at >= CURRENT_TIMESTAMP - (${addValue(importedDays)}::int * INTERVAL '1 day')`);
+    filters.push(`f.imported_at >= CURRENT_TIMESTAMP - (${addValue(importedDays)}::int * INTERVAL '1 day')`);
   }
 
-  if (minimumBytes) filters.push(`total_bytes > ${addValue(minimumBytes)}::numeric`);
+  if (minimumBytes) filters.push(`f.total_bytes > ${addValue(minimumBytes)}::numeric`);
+
+  if (billing !== 'all') {
+    const stockholmDate = `(CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date`;
+    const policyCondition = billing === 'billable'
+      ? `(sp.policy_type = 'AGREEMENT' OR (
+          sp.policy_type = 'TEMPORARY'
+          AND ${stockholmDate} >= f.imported_at::date + sp.grace_days + sp.billing_grace_days + 1
+        ))`
+      : `sp.policy_type = 'TEMPORARY'
+        AND ${stockholmDate} >= f.imported_at::date + sp.grace_days + 1`;
+    filters.push(`EXISTS (
+      SELECT 1
+      FROM public.storage_policy AS sp
+      WHERE sp.group_id = f.group_id
+        AND f.deleted_at IS NULL
+        AND sp.valid_from <= ${stockholmDate}
+        AND (sp.valid_until IS NULL OR sp.valid_until >= ${stockholmDate})
+        AND ${policyCondition}
+    )`);
+  }
 
   return {
     page,
@@ -263,23 +286,23 @@ router.get('/filesets', authMiddleware, async (req, res) => {
     const [rowsResult, filteredResult, totalResult] = await Promise.all([
       pool.query(`
         SELECT
-          fileset_id,
-          username,
-          firstname,
-          lastname,
-          group_id,
-          group_name,
-          imported_at,
-          source_file_count,
-          image_count,
-          total_bytes,
-          deleted_at
-        FROM public.omero_fileset
+          f.fileset_id,
+          f.username,
+          f.firstname,
+          f.lastname,
+          f.group_id,
+          f.group_name,
+          f.imported_at,
+          f.source_file_count,
+          f.image_count,
+          f.total_bytes,
+          f.deleted_at
+        FROM public.omero_fileset AS f
         ${where}
         ORDER BY ${orderBy}
         LIMIT ${limitPlaceholder}::int OFFSET ${offsetPlaceholder}::int
       `, dataValues),
-      pool.query(`SELECT COUNT(*)::int AS count FROM public.omero_fileset ${where}`, values),
+      pool.query(`SELECT COUNT(*)::int AS count FROM public.omero_fileset AS f ${where}`, values),
       pool.query('SELECT COUNT(*)::int AS count FROM public.omero_fileset'),
     ]);
 
@@ -294,6 +317,39 @@ router.get('/filesets', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error('Failed to fetch OMERO filesets:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/filesets/:filesetId', authMiddleware, async (req, res) => {
+  if (!/^\d+$/.test(req.params.filesetId)) {
+    return res.status(400).json({ error: 'Invalid fileset ID' });
+  }
+
+  try {
+    const result = await pool.query(`
+      SELECT
+        f.fileset_id,
+        f.locations,
+        f.first_seen_at,
+        f.last_seen_at,
+        f.uncontained_image_count,
+        f.missing_since_at,
+        f.missing_runs,
+        f.deleted_at,
+        COALESCE((
+          SELECT jsonb_agg(entry.value ->> 'name' ORDER BY entry.ordinal)
+          FROM jsonb_array_elements(f.source_files)
+            WITH ORDINALITY AS entry(value, ordinal)
+        ), '[]'::jsonb) AS source_file_names
+      FROM public.omero_fileset AS f
+      WHERE f.fileset_id = $1::bigint
+    `, [req.params.filesetId]);
+
+    if (!result.rows.length) return res.status(404).json({ error: 'Fileset not found' });
+    return res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Failed to fetch OMERO fileset details:', error.message);
     return res.status(500).json({ error: error.message });
   }
 });

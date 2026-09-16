@@ -1,6 +1,7 @@
 let chartInstance = null;
 let omeroChartInstance = null;
 let filesetTableInstance = null;
+const filesetDetailsCache = new Map();
 let apiToken = sessionStorage.getItem('dashboardToken') || '';
 let scopesLoaded = false;
 let omeroGroupsLoaded = false;
@@ -396,11 +397,65 @@ async function populateOmeroGroups() {
   }
 }
 
-function formatFilesetDate(value) {
+function formatFilesetDate(value, includeTime = false) {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
+  const options = includeTime
+    ? { dateStyle: 'medium', timeStyle: 'short' }
+    : { dateStyle: 'medium' };
+  return new Intl.DateTimeFormat(undefined, options).format(date);
+}
+
+function buildFilesetDetails(fileset) {
+  const details = document.createElement('div');
+  details.className = 'fileset-details';
+  const locations = Array.isArray(fileset.locations) ? fileset.locations : [];
+  const locationText = locations.length
+    ? locations.map((location) => {
+      const project = location.project_name
+        ? `${location.project_name} (ID ${location.project_id})`
+        : 'No project';
+      const dataset = location.dataset_name
+        ? `${location.dataset_name} (ID ${location.dataset_id})`
+        : 'No dataset';
+      return `${project} / ${dataset}`;
+    }).join('\n')
+    : 'No project or dataset location';
+  const fields = [
+    ['OMERO location', locationText, 'is-wide'],
+    ['Collected at', formatFilesetDate(fileset.first_seen_at, true)],
+    ['Last seen', formatFilesetDate(fileset.last_seen_at, true)],
+    ['Uncontained images', Number(fileset.uncontained_image_count).toLocaleString()],
+    ['Missing runs', Number(fileset.missing_runs).toLocaleString()],
+    [
+      'Source files',
+      Array.isArray(fileset.source_file_names) && fileset.source_file_names.length
+        ? fileset.source_file_names.join('\n')
+        : 'No source file names',
+      'is-wide',
+    ],
+  ];
+
+  if (fileset.missing_since_at) {
+    fields.push(['Missing since', formatFilesetDate(fileset.missing_since_at, true)]);
+  }
+  if (fileset.deleted_at) {
+    fields.push(['Deleted at', formatFilesetDate(fileset.deleted_at, true)]);
+  }
+
+  fields.forEach(([label, value, className]) => {
+    const item = document.createElement('div');
+    if (className) item.classList.add(className);
+    const term = document.createElement('dt');
+    const description = document.createElement('dd');
+    term.textContent = label;
+    description.textContent = value;
+    item.append(term, description);
+    details.appendChild(item);
+  });
+
+  return details;
 }
 
 function getFilesetSort() {
@@ -439,6 +494,9 @@ function initializeFilesetTable() {
         status: document.getElementById('filesetStatusSelect').value,
         imported: document.getElementById('filesetImportedSelect').value,
         size: document.getElementById('filesetSizeSelect').value,
+        billing: ['billable', 'overdue'].includes(document.getElementById('filesetOrderSelect').value)
+          ? document.getElementById('filesetOrderSelect').value
+          : 'all',
         page: String(Math.floor(data.start / data.length) + 1),
         pageSize: String(data.length),
         sort,
@@ -460,6 +518,14 @@ function initializeFilesetTable() {
         });
     },
     columns: [
+      {
+        data: null,
+        className: 'fileset-detail-control',
+        defaultContent: '',
+        render() {
+          return '<button class="fileset-detail-button" type="button" aria-expanded="false" aria-label="Show fileset details"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>';
+        },
+      },
       { data: 'fileset_id', render: DataTable.render.text() },
       {
         data: null,
@@ -484,6 +550,45 @@ function initializeFilesetTable() {
         },
       },
     ],
+  });
+
+  document.querySelector('#filesetTable tbody').addEventListener('click', async (event) => {
+    const button = event.target.closest('.fileset-detail-button');
+    if (!button) return;
+
+    const tableRow = button.closest('tr');
+    const row = filesetTableInstance.row(tableRow);
+    if (row.child.isShown()) {
+      row.child.hide();
+      tableRow.classList.remove('details-open');
+      button.setAttribute('aria-expanded', 'false');
+      button.setAttribute('aria-label', 'Show fileset details');
+      return;
+    }
+
+    const filesetId = String(row.data().fileset_id);
+    const loading = document.createElement('div');
+    loading.className = 'fileset-details-loading';
+    loading.textContent = 'Loading details…';
+    row.child(loading).show();
+    tableRow.classList.add('details-open');
+    button.setAttribute('aria-expanded', 'true');
+    button.setAttribute('aria-label', 'Hide fileset details');
+    button.disabled = true;
+
+    try {
+      if (!filesetDetailsCache.has(filesetId)) {
+        filesetDetailsCache.set(filesetId, await fetchJson(`/api/omero/filesets/${filesetId}`));
+      }
+      row.child(buildFilesetDetails(filesetDetailsCache.get(filesetId))).show();
+    } catch (error) {
+      const errorMessage = document.createElement('div');
+      errorMessage.className = 'fileset-details-error';
+      errorMessage.textContent = error.message;
+      row.child(errorMessage).show();
+    } finally {
+      button.disabled = false;
+    }
   });
 }
 

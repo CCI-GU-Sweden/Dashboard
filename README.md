@@ -22,12 +22,15 @@ The backend is split into database, authentication middleware, and route modules
 - `/api/omero/history` returns total and billable daily storage from `group_storage_snapshot`, in either decimal GB or öre per day.
 - `/api/omero/groups` returns the OMERO groups available in the snapshot history.
 - `/api/omero/summary` returns seven latest-snapshot metrics and their changes from the selected comparison date.
-- `/api/omero/filesets` returns a searchable, filterable, sortable page of `public.omero_fileset` rows. It accepts `search`, `group_id`, `status`, `imported`, `size`, `page`, `pageSize`, `sort`, and `order` query parameters.
+- `/api/omero/filesets` returns a searchable, filterable, sortable page of `public.omero_fileset` rows. It accepts `search`, `group_id`, `status`, `imported`, `size`, `billing`, `page`, `pageSize`, `sort`, and `order` query parameters. `billing` supports policy-derived `billable` and `overdue` filters.
+- `/api/omero/filesets/:filesetId` returns expandable detail metadata: OMERO project/dataset locations, first and last collection sightings, uncontained-image and missing-run counts, and source filenames. Stored source `client_path` values are intentionally excluded.
 - `/api/omero/policies` and `/api/omero/collector-runs` remain authenticated placeholders and currently return `501 Not Implemented`.
 
 The frontend opens on an overview of Uploads, OMERO Storage, and Compute. Each card opens its own mutually exclusive dashboard view while keeping the shared university header and login control visible. Upload details are loaded only when the Uploads view is opened, and authentication is retained in the current browser tab.
 
 The OMERO Storage view graphs the daily total and billable series. In storage mode, values use decimal GB (`1 GB = 1,000,000,000 bytes`) to match collector billing. In öre mode, Total is the daily charge if all stored bytes were billable at each snapshot's applied rate, while Billable uses the stored `daily_charge_ore` value.
+
+The fileset table has expandable details for its current OMERO project/dataset locations plus collector timestamps. Only explicitly allow-listed OMERO metadata is returned; source `client_path` values and server filesystem paths are not exposed.
 
 The dashboard reads these tables through its existing statistics-database `PG*` connection. That PostgreSQL role needs `SELECT` on `public.group_storage_snapshot` and `public.omero_fileset`. Do not use `omero-stats-reader-secret` here: that credential reads the source OMERO database, while these tables belong to `omerofilestats`.
 

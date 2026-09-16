@@ -207,7 +207,7 @@
         <span></span>
       </div>
 
-      <div class="upload-dashboard">
+      <div class="upload-dashboard omero-dashboard-top">
         <aside class="metric-sidebar" aria-label="OMERO storage summary">
           <div class="metric-card">
             <p>Total filesets</p>
@@ -295,8 +295,10 @@
           <div class="chart-panel">
             <canvas id="omeroChart"></canvas>
           </div>
+        </div>
+      </div>
 
-          <section class="fileset-panel" aria-labelledby="filesetTableTitle">
+      <section class="fileset-panel" aria-labelledby="filesetTableTitle">
             <div class="fileset-heading">
               <div>
                 <p class="eyebrow">Inventory</p>
@@ -327,19 +329,17 @@
               </label>
               <label class="field">
                 <span class="label">Order</span>
-                <span class="select"><select id="filesetOrderSelect"><option value="largest">Largest filesets</option><option value="oldest">Oldest filesets</option><option value="newest">Newest filesets</option><option value="billable" disabled>Billable only — policy data required</option><option value="overdue" disabled>Overdue only — policy data required</option></select></span>
+                <span class="select"><select id="filesetOrderSelect"><option value="largest">Largest filesets</option><option value="oldest">Oldest filesets</option><option value="newest">Newest filesets</option><option value="billable">Billable only</option><option value="overdue">Overdue only</option></select></span>
               </label>
             </div>
 
             <p class="notification is-danger is-light chart-error" id="filesetTableError" hidden></p>
             <div class="fileset-table-wrap">
               <table id="filesetTable" class="display" style="width:100%">
-                <thead><tr><th>ID</th><th>Owner</th><th>Group</th><th>Imported</th><th>Source files</th><th>Images</th><th>Size</th><th>Status</th></tr></thead>
+                <thead><tr><th>Details</th><th>ID</th><th>Owner</th><th>Group</th><th>Imported</th><th>Source files</th><th>Images</th><th>Size</th><th>Status</th></tr></thead>
               </table>
             </div>
-          </section>
-        </div>
-      </div>
+      </section>
     </section>
 
     <section class="app-view future-view" id="computeView" hidden>
