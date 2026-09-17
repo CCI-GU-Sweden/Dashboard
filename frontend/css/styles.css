@@ -28,7 +28,7 @@ body {
   margin: 0;
 }
 
-.app-view[hidden] {
+[hidden] {
   display: none !important;
 }
 
