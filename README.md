@@ -43,10 +43,26 @@ A shared password is require to allow the backend to connect to the database (pa
 A jsonwebtoken (JWT) is monitoring the session with a token. Session duration is set to 1 hour.  
 A rate limiter to 100 API calls every 15 min.  
 
-## Next
+## Deployement
 
-- Currenlty only display last year/month/week of data. Can keep that but can also show more control:
-    - Allow a range selection (calender style)
-- Add 2 extra card: average size / time period and average file imported / time period
-- Add some colour to the card?
-- Correct the Metric (Data (MB)) to GB!
+Tag the version from text server. Adjust the sha256 to the desired build (check in the yaml)
+
+´´´text
+oc tag `
+>>   core-omero-test/dashboard-test@sha256:... `
+>>   core-omero-prod/dashboard:stable
+´´´
+
+Then deploy it in prod
+
+´´´text
+oc set image deployment/dashboard `
+  dashboard=image-registry.openshift-image-registry.svc:5000/core-omero-prod/dashboard:stable `
+  -n core-omero-prod
+´´´
+
+and restart the pod to make it update
+
+´´´text
+oc rollout status deployment/dashboard -n core-omero-prod
+´´´
