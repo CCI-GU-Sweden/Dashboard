@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 
 const pool = require('../db');
 const omeroRouter = require('../routes/omero');
-const { buildFilesetQuery } = omeroRouter;
+const { buildFilesetQuery, normalizePolicyInput } = omeroRouter;
 
 test('fileset query defaults to active filesets ordered by size', () => {
   const query = buildFilesetQuery({});
@@ -96,6 +96,108 @@ test('group ranking returns top-group metrics and comparison percentage', async 
     assert.equal(body.groups[0].daily_charge_sek, 0.75);
   } finally {
     pool.query = originalQuery;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('policy input applies policy-type invariants', () => {
+  const agreement = normalizePolicyInput({
+    group_id: '12',
+    policy_type: 'AGREEMENT',
+    grace_days: 90,
+    billing_grace_days: 0,
+    rate_ore_per_gb_day: '2.0000',
+    valid_from: '2026-10-01',
+    notes: ' Agreement ',
+  });
+  const core = normalizePolicyInput({
+    group_id: '12',
+    policy_type: 'CORE',
+    billing_grace_days: 0,
+    rate_ore_per_gb_day: '99',
+    valid_from: '2026-10-01',
+  });
+
+  assert.equal(agreement.value.graceDays, 0);
+  assert.equal(agreement.value.rate, '2.0000');
+  assert.equal(agreement.value.notes, 'Agreement');
+  assert.equal(core.value.graceDays, null);
+  assert.equal(core.value.rate, '0');
+});
+
+test('policy input rejects invalid dates and rates', () => {
+  assert.equal(normalizePolicyInput({
+    group_id: '12',
+    policy_type: 'TEMPORARY',
+    grace_days: 90,
+    billing_grace_days: 7,
+    rate_ore_per_gb_day: '-1',
+    valid_from: '2026-10-01',
+  }).error, 'Rate must be a non-negative number with up to four decimals');
+  assert.equal(normalizePolicyInput({
+    group_id: '12',
+    policy_type: 'CORE',
+    billing_grace_days: 0,
+    valid_from: 'not-a-date',
+  }).error, 'Invalid effective date');
+});
+
+test('policy change closes its predecessor and inserts a history row', async () => {
+  const originalConnect = pool.connect;
+  const statements = [];
+  const client = {
+    async query(sql, values) {
+      statements.push({ sql, values });
+      if (sql.includes('AS today')) return { rows: [{ today: '2026-09-16' }] };
+      if (sql.includes('FOR UPDATE')) {
+        return {
+          rows: [{
+            policy_id: '3',
+            group_name: 'Imaging',
+            valid_from: '2026-01-01',
+            valid_until: null,
+          }],
+        };
+      }
+      if (sql.includes('RETURNING *')) return { rows: [{ policy_id: '4' }] };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  pool.connect = async () => client;
+
+  const app = express();
+  app.use(express.json());
+  app.use('/api/omero', omeroRouter);
+  const server = app.listen(0);
+
+  try {
+    const token = jwt.sign({ access: true }, 'supersecret');
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/omero/policies`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          group_id: '12',
+          policy_type: 'AGREEMENT',
+          billing_grace_days: 0,
+          rate_ore_per_gb_day: '2.0000',
+          valid_from: '2026-10-01',
+          notes: 'New agreement',
+        }),
+      },
+    );
+
+    assert.equal(response.status, 201);
+    assert.ok(statements.some(({ sql }) => sql.includes('UPDATE public.storage_policy')));
+    assert.ok(statements.some(({ sql }) => sql.includes('INSERT INTO public.storage_policy')));
+    assert.equal(statements.at(-1).sql, 'COMMIT');
+  } finally {
+    pool.connect = originalConnect;
     await new Promise((resolve) => server.close(resolve));
   }
 });

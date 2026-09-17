@@ -6,7 +6,6 @@ const { authMiddleware } = require('../middleware/auth');
 const router = express.Router();
 
 const pendingEndpoints = [
-  '/policies',
   '/collector-runs',
 ];
 
@@ -31,6 +30,61 @@ function parsePositiveInteger(value, fallback, maximum) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) return null;
   return parsed;
+}
+
+function normalizePolicyInput(body) {
+  const groupId = String(body.group_id || '');
+  const policyType = body.policy_type;
+  const validFrom = body.valid_from;
+  const billingGraceValue = String(body.billing_grace_days ?? '');
+  const billingGraceDays = Number(billingGraceValue);
+  const notes = typeof body.notes === 'string' ? body.notes.trim() : '';
+
+  if (!/^\d+$/.test(groupId)) return { error: 'Invalid group' };
+  if (!['TEMPORARY', 'AGREEMENT', 'CORE'].includes(policyType)) {
+    return { error: 'Invalid policy type' };
+  }
+  if (!isIsoDate(validFrom)) return { error: 'Invalid effective date' };
+  if (!/^\d+$/.test(billingGraceValue)
+    || !Number.isSafeInteger(billingGraceDays)
+    || billingGraceDays > 3650) {
+    return { error: 'Billing grace must be a whole number from 0 to 3650' };
+  }
+  if (notes.length > 2000) return { error: 'Notes must not exceed 2000 characters' };
+
+  let graceDays = null;
+  let rate = '0';
+  if (policyType === 'TEMPORARY') {
+    const graceValue = String(body.grace_days ?? '');
+    graceDays = Number(graceValue);
+    if (!/^\d+$/.test(graceValue)
+      || !Number.isSafeInteger(graceDays)
+      || graceDays > 36500) {
+      return { error: 'Retention period must be a whole number from 0 to 36500' };
+    }
+  } else if (policyType === 'AGREEMENT') {
+    graceDays = 0;
+  }
+
+  if (policyType !== 'CORE') {
+    const requestedRate = String(body.rate_ore_per_gb_day ?? '');
+    if (!/^\d{1,8}(\.\d{1,4})?$/.test(requestedRate)) {
+      return { error: 'Rate must be a non-negative number with up to four decimals' };
+    }
+    rate = requestedRate;
+  }
+
+  return {
+    value: {
+      groupId,
+      policyType,
+      graceDays,
+      billingGraceDays,
+      rate,
+      validFrom,
+      notes: notes || null,
+    },
+  };
 }
 
 function buildFilesetQuery(query) {
@@ -340,6 +394,141 @@ router.get('/groups/ranking', authMiddleware, async (req, res) => {
   }
 });
 
+router.get('/policies', authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        policy_id,
+        group_id,
+        group_name,
+        policy_type,
+        grace_days,
+        billing_grace_days,
+        rate_ore_per_gb_day,
+        valid_from,
+        valid_until,
+        notes,
+        created_at,
+        updated_at,
+        CASE
+          WHEN valid_from > (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date
+            THEN 'upcoming'
+          WHEN valid_until IS NOT NULL
+            AND valid_until < (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date
+            THEN 'expired'
+          ELSE 'active'
+        END AS effective_status
+      FROM public.storage_policy
+      ORDER BY group_name, group_id, valid_from DESC
+    `);
+
+    return res.json({ data: result.rows });
+  } catch (error) {
+    console.error('Failed to fetch OMERO storage policies:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/policies', authMiddleware, async (req, res) => {
+  const normalized = normalizePolicyInput(req.body || {});
+  if (normalized.error) return res.status(400).json({ error: normalized.error });
+
+  const policy = normalized.value;
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [policy.groupId]);
+
+    const todayResult = await client.query(`
+      SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date::text AS today
+    `);
+    if (policy.validFrom < todayResult.rows[0].today) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Effective date cannot be in the past' });
+    }
+
+    const historyResult = await client.query(`
+      SELECT policy_id, group_name, valid_from::text, valid_until::text
+      FROM public.storage_policy
+      WHERE group_id = $1::bigint
+      ORDER BY valid_from
+      FOR UPDATE
+    `, [policy.groupId]);
+
+    if (!historyResult.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No policy history exists for this group' });
+    }
+    if (historyResult.rows.some((row) => row.valid_from === policy.validFrom)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'A policy already starts on this date' });
+    }
+
+    const predecessor = [...historyResult.rows]
+      .reverse()
+      .find((row) => row.valid_from < policy.validFrom);
+    const successor = historyResult.rows.find((row) => row.valid_from > policy.validFrom);
+    const groupName = historyResult.rows[historyResult.rows.length - 1].group_name;
+
+    if (predecessor) {
+      await client.query(`
+        UPDATE public.storage_policy
+        SET valid_until = $2::date - 1, updated_at = now()
+        WHERE policy_id = $1::bigint
+      `, [predecessor.policy_id, policy.validFrom]);
+    }
+
+    const insertResult = await client.query(`
+      INSERT INTO public.storage_policy (
+        group_id,
+        group_name,
+        policy_type,
+        grace_days,
+        billing_grace_days,
+        rate_ore_per_gb_day,
+        valid_from,
+        valid_until,
+        notes
+      ) VALUES (
+        $1::bigint, $2, $3, $4::int, $5::int, $6::numeric,
+        $7::date, $8::date - 1, $9
+      )
+      RETURNING *
+    `, [
+      policy.groupId,
+      groupName,
+      policy.policyType,
+      policy.graceDays,
+      policy.billingGraceDays,
+      policy.rate,
+      policy.validFrom,
+      successor?.valid_from || null,
+      policy.notes,
+    ]);
+
+    await client.query('COMMIT');
+    return res.status(201).json(insertResult.rows[0]);
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Failed to create OMERO storage policy:', error.message);
+    if (error.code === '42501') {
+      return res.status(403).json({
+        error: 'The dashboard database role needs INSERT and UPDATE on storage_policy',
+      });
+    }
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'A policy already starts on this date' });
+    }
+    if (error.code === '23514' || error.code === '22003') {
+      return res.status(400).json({ error: 'Policy values violate the storage policy schema' });
+    }
+    return res.status(500).json({ error: error.message });
+  } finally {
+    if (client) client.release();
+  }
+});
+
 router.get('/filesets', authMiddleware, async (req, res) => {
   const filesetQuery = buildFilesetQuery(req.query);
 
@@ -508,3 +697,4 @@ pendingEndpoints.forEach((endpoint) => {
 
 module.exports = router;
 module.exports.buildFilesetQuery = buildFilesetQuery;
+module.exports.normalizePolicyInput = normalizePolicyInput;

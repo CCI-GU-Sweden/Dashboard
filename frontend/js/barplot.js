@@ -1,6 +1,8 @@
 let chartInstance = null;
 let omeroChartInstance = null;
 let filesetTableInstance = null;
+let policyTableInstance = null;
+let policiesLoaded = false;
 const filesetDetailsCache = new Map();
 let apiToken = sessionStorage.getItem('dashboardToken') || '';
 let scopesLoaded = false;
@@ -106,9 +108,13 @@ function setupAuthentication(onUnlock) {
   return openModal;
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${apiToken}` },
+    ...options,
+    headers: {
+      ...options.headers,
+      Authorization: `Bearer ${apiToken}`,
+    },
   });
 
   if (response.status === 401) {
@@ -218,6 +224,7 @@ async function loadOmeroDashboard() {
   if (!omeroGroupsLoaded) requests.push(populateOmeroGroups());
   await Promise.all(requests);
   initializeFilesetTable();
+  if (!document.getElementById('storagePoliciesPanel').hidden) await loadPolicies();
 }
 
 async function activateView(viewName, { historyMode = 'push', loadData = true } = {}) {
@@ -596,6 +603,238 @@ function initializeFilesetTable() {
   });
 }
 
+function policyBadgeMarkup(policyType) {
+  const badgeClass = {
+    CORE: 'is-core',
+    AGREEMENT: 'is-agreement',
+    TEMPORARY: 'is-temporary',
+  }[policyType] || 'is-core';
+  return `<span class="policy-badge ${badgeClass}">${policyType}</span>`;
+}
+
+function formatPolicyDate(value) {
+  if (!value) return '—';
+  return String(value).slice(0, 10);
+}
+
+function formatPolicyRate(value) {
+  return `${Number(value || 0).toFixed(4)} öre / GB / day`;
+}
+
+function groupPolicyHistory(policies) {
+  const groups = new Map();
+  policies.forEach((policy) => {
+    const key = String(policy.group_id);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(policy);
+  });
+
+  return [...groups.values()].map((history) => {
+    history.sort((left, right) => String(right.valid_from).localeCompare(String(left.valid_from)));
+    return { ...history[0], history };
+  });
+}
+
+function buildPolicyHistory(policy) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'policy-history';
+  const table = document.createElement('table');
+  table.className = 'policy-history-table';
+  table.innerHTML = '<thead><tr><th>Policy</th><th>From</th><th>Until</th><th>Rate</th><th>Status</th><th>Notes</th></tr></thead>';
+  const body = document.createElement('tbody');
+
+  policy.history.forEach((entry) => {
+    const row = document.createElement('tr');
+    const cells = [
+      entry.policy_type,
+      formatPolicyDate(entry.valid_from),
+      formatPolicyDate(entry.valid_until),
+      formatPolicyRate(entry.rate_ore_per_gb_day),
+      entry.effective_status,
+      entry.notes || '—',
+    ];
+    cells.forEach((value, index) => {
+      const cell = document.createElement('td');
+      if (index === 0) cell.innerHTML = policyBadgeMarkup(value);
+      else cell.textContent = value;
+      row.appendChild(cell);
+    });
+    body.appendChild(row);
+  });
+
+  table.appendChild(body);
+  wrapper.appendChild(table);
+  return wrapper;
+}
+
+function initializePolicyTable(policies) {
+  const data = groupPolicyHistory(policies);
+  if (policyTableInstance) {
+    policyTableInstance.clear().rows.add(data).draw();
+    return;
+  }
+
+  policyTableInstance = new DataTable('#policyTable', {
+    data,
+    pageLength: 25,
+    order: [[1, 'asc']],
+    scrollX: true,
+    columns: [
+      {
+        data: null,
+        orderable: false,
+        className: 'fileset-detail-control',
+        render: () => '<button class="policy-history-button" type="button" aria-expanded="false" aria-label="Show policy history"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>',
+      },
+      { data: 'group_name', render: DataTable.render.text() },
+      { data: 'policy_type', render: (value, type) => (type === 'display' ? policyBadgeMarkup(value) : value) },
+      {
+        data: 'grace_days',
+        render: (value, type) => (type === 'display'
+          ? value === null ? '—' : `${value} days`
+          : value ?? -1),
+      },
+      {
+        data: 'billing_grace_days',
+        render: (value, type) => (type === 'display' ? `${value} days` : Number(value)),
+      },
+      {
+        data: 'rate_ore_per_gb_day',
+        render: (value, type) => (type === 'display' ? formatPolicyRate(value) : Number(value)),
+      },
+      { data: 'valid_from', render: formatPolicyDate },
+      { data: 'valid_until', render: formatPolicyDate },
+      { data: 'notes', defaultContent: '—', render: DataTable.render.text() },
+      {
+        data: null,
+        orderable: false,
+        render: () => '<button class="button is-small is-link is-light policy-edit-button" type="button"><span class="icon is-small"><i class="fas fa-pen" aria-hidden="true"></i></span><span>Edit</span></button>',
+      },
+    ],
+  });
+
+  document.querySelector('#policyTable tbody').addEventListener('click', (event) => {
+    const tableRow = event.target.closest('tr');
+    if (!tableRow) return;
+    const row = policyTableInstance.row(tableRow);
+    const historyButton = event.target.closest('.policy-history-button');
+    if (historyButton) {
+      if (row.child.isShown()) {
+        row.child.hide();
+        tableRow.classList.remove('details-open');
+        historyButton.setAttribute('aria-expanded', 'false');
+      } else {
+        row.child(buildPolicyHistory(row.data())).show();
+        tableRow.classList.add('details-open');
+        historyButton.setAttribute('aria-expanded', 'true');
+      }
+      return;
+    }
+
+    if (event.target.closest('.policy-edit-button')) openPolicyModal(row.data());
+  });
+}
+
+async function loadPolicies() {
+  const errorElement = document.getElementById('policyTableError');
+  errorElement.hidden = true;
+  try {
+    const response = await fetchJson('/api/omero/policies');
+    initializePolicyTable(response.data || []);
+    policiesLoaded = true;
+  } catch (error) {
+    errorElement.textContent = error.message;
+    errorElement.hidden = false;
+  }
+}
+
+function stockholmToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Stockholm',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function nextDate(dateValue) {
+  const date = new Date(`${dateValue}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function updatePolicyFormForType(resetDefaults = false) {
+  const policyType = document.getElementById('policyType').value;
+  const graceInput = document.getElementById('policyGraceDays');
+  const graceHelp = document.getElementById('policyGraceHelp');
+  const rateInput = document.getElementById('policyRate');
+  const billingGraceInput = document.getElementById('policyBillingGraceDays');
+
+  graceInput.disabled = policyType !== 'TEMPORARY';
+  rateInput.disabled = policyType === 'CORE';
+  if (policyType === 'TEMPORARY') {
+    if (resetDefaults || !graceInput.value) graceInput.value = '90';
+    if (resetDefaults) billingGraceInput.value = '7';
+    if (resetDefaults || !rateInput.value || Number(rateInput.value) === 0) rateInput.value = '5.0000';
+    graceHelp.textContent = '';
+  } else if (policyType === 'AGREEMENT') {
+    graceInput.value = '0';
+    if (resetDefaults) billingGraceInput.value = '0';
+    if (resetDefaults || !rateInput.value || Number(rateInput.value) === 0) rateInput.value = '2.0000';
+    graceHelp.textContent = 'Fixed at 0 days for agreement policies.';
+  } else {
+    graceInput.value = '';
+    if (resetDefaults) billingGraceInput.value = '0';
+    rateInput.value = '0.0000';
+    graceHelp.textContent = 'Not applicable to core policies.';
+  }
+}
+
+function openPolicyModal(policy) {
+  const today = stockholmToday();
+  const suggestedDate = nextDate(formatPolicyDate(policy.valid_from));
+  document.getElementById('policyGroupId').value = policy.group_id;
+  document.getElementById('policyGroupName').value = policy.group_name;
+  document.getElementById('policyType').value = policy.policy_type;
+  document.getElementById('policyGraceDays').value = policy.grace_days ?? '';
+  document.getElementById('policyBillingGraceDays').value = policy.billing_grace_days;
+  document.getElementById('policyRate').value = Number(policy.rate_ore_per_gb_day).toFixed(4);
+  document.getElementById('policyValidFrom').min = today;
+  document.getElementById('policyValidFrom').value = suggestedDate > today ? suggestedDate : today;
+  document.getElementById('policyNotes').value = policy.notes || '';
+  document.getElementById('policyFormError').hidden = true;
+  updatePolicyFormForType();
+  document.getElementById('policy-modal').classList.add('is-active');
+  setTimeout(() => document.getElementById('policyType').focus(), 100);
+}
+
+function closePolicyModal() {
+  document.getElementById('policy-modal').classList.remove('is-active');
+  document.getElementById('policyForm').reset();
+  document.getElementById('policyFormError').hidden = true;
+}
+
+function activateOmeroDataTab(tab) {
+  const showPolicies = tab === 'policies';
+  document.getElementById('filesetInventoryPanel').hidden = showPolicies;
+  document.getElementById('storagePoliciesPanel').hidden = !showPolicies;
+  const filesetTab = document.getElementById('filesetInventoryTab');
+  const policiesTab = document.getElementById('storagePoliciesTab');
+  filesetTab.parentElement.classList.toggle('is-active', !showPolicies);
+  policiesTab.parentElement.classList.toggle('is-active', showPolicies);
+  filesetTab.setAttribute('aria-selected', String(!showPolicies));
+  policiesTab.setAttribute('aria-selected', String(showPolicies));
+
+  if (showPolicies) {
+    if (!policiesLoaded) loadPolicies();
+    else policyTableInstance?.columns.adjust();
+  } else {
+    filesetTableInstance?.columns.adjust();
+  }
+}
+
 async function fetchAndRenderOmeroHistory() {
   const filters = getOmeroFilters();
   const params = new URLSearchParams({
@@ -744,6 +983,7 @@ function renderGroupRanking(data) {
   chart.on('plotly_click', (event) => {
     const groupId = String(event.points[0].customdata[0]);
     const groupSelect = document.getElementById('filesetGroupSelect');
+    activateOmeroDataTab('filesets');
     groupSelect.value = groupId;
     reloadFilesetTable();
     document.getElementById('filesetTableTitle').scrollIntoView({
@@ -939,6 +1179,58 @@ document.getElementById('omeroGroupSelect').addEventListener('change', fetchAndR
 document.getElementById('omeroMetricSelect').addEventListener('change', fetchAndRenderOmeroHistory);
 document.getElementById('omeroStartDate').addEventListener('change', refreshOmeroDashboard);
 document.getElementById('omeroEndDate').addEventListener('change', refreshOmeroDashboard);
+
+document.getElementById('filesetInventoryTab').addEventListener('click', () => {
+  activateOmeroDataTab('filesets');
+});
+document.getElementById('storagePoliciesTab').addEventListener('click', () => {
+  activateOmeroDataTab('policies');
+});
+
+document.getElementById('policyType').addEventListener('change', () => {
+  updatePolicyFormForType(true);
+});
+document.getElementById('closePolicyModal').addEventListener('click', closePolicyModal);
+document.getElementById('cancelPolicyEdit').addEventListener('click', closePolicyModal);
+document.querySelector('#policy-modal .modal-background').addEventListener('click', closePolicyModal);
+document.getElementById('policyForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const saveButton = document.getElementById('savePolicy');
+  const errorElement = document.getElementById('policyFormError');
+  const policyType = document.getElementById('policyType').value;
+  errorElement.hidden = true;
+  saveButton.disabled = true;
+  saveButton.classList.add('is-loading');
+
+  try {
+    await fetchJson('/api/omero/policies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        group_id: document.getElementById('policyGroupId').value,
+        policy_type: policyType,
+        grace_days: policyType === 'TEMPORARY'
+          ? document.getElementById('policyGraceDays').value
+          : null,
+        billing_grace_days: document.getElementById('policyBillingGraceDays').value,
+        rate_ore_per_gb_day: policyType === 'CORE'
+          ? '0'
+          : document.getElementById('policyRate').value,
+        valid_from: document.getElementById('policyValidFrom').value,
+        notes: document.getElementById('policyNotes').value,
+      }),
+    });
+    closePolicyModal();
+    await loadPolicies();
+    reloadFilesetTable();
+  } catch (error) {
+    errorElement.textContent = error.message;
+    errorElement.hidden = false;
+  } finally {
+    saveButton.disabled = false;
+    saveButton.classList.remove('is-loading');
+  }
+});
 
 let filesetSearchTimer;
 document.getElementById('filesetSearch').addEventListener('input', () => {

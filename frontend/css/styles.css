@@ -449,6 +449,129 @@ body {
   border-radius: 12px;
 }
 
+.omero-data-tabs {
+  margin: 0 0 -1px;
+}
+
+.omero-data-tabs button {
+  padding: 0.65rem 1.1rem;
+  color: var(--muted);
+  font: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.omero-data-tabs li.is-active button {
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.policy-help,
+.policy-modal-subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.policy-badge {
+  display: inline-block;
+  padding: 0.22rem 0.58rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+}
+
+.policy-badge.is-core {
+  color: #475569;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.policy-badge.is-agreement {
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.policy-badge.is-temporary {
+  color: #9a3412;
+  background: #ffedd5;
+  border-color: #fdba74;
+}
+
+.policy-history-button {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  color: var(--blue);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.policy-history-button i {
+  transition: transform 150ms ease;
+}
+
+tr.details-open .policy-history-button i {
+  transform: rotate(90deg);
+}
+
+.policy-history {
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  background: #f8fafc;
+  border-left: 3px solid var(--blue);
+}
+
+.policy-history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.policy-history-table th,
+.policy-history-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+
+.policy-history-table th {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.policy-modal-card {
+  width: min(720px, calc(100vw - 2rem));
+}
+
+.policy-modal-card .modal-card-head > div {
+  min-width: 0;
+}
+
+.policy-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 1rem;
+}
+
+.policy-unit {
+  width: 3.2rem !important;
+  color: var(--muted) !important;
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
+.policy-form-grid .has-icons-right .input {
+  padding-right: 3.5rem;
+}
+
 .group-ranking-panel {
   margin-bottom: 1rem;
   padding: 1.2rem;
@@ -706,6 +829,10 @@ tr.details-open .fileset-detail-button i {
   .group-ranking-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .policy-form-grid {
+    grid-template-columns: 1fr;
   }
 
   .detail-toolbar {

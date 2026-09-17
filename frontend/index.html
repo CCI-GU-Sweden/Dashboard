@@ -312,7 +312,14 @@
         <p class="group-ranking-hint">Select a bar to filter the fileset table by that group.</p>
       </section>
 
-      <section class="fileset-panel" aria-labelledby="filesetTableTitle">
+      <div class="tabs is-boxed omero-data-tabs" role="tablist" aria-label="OMERO data tables">
+        <ul>
+          <li class="is-active"><button id="filesetInventoryTab" type="button" role="tab" aria-selected="true" aria-controls="filesetInventoryPanel">Fileset inventory</button></li>
+          <li><button id="storagePoliciesTab" type="button" role="tab" aria-selected="false" aria-controls="storagePoliciesPanel">Storage policies</button></li>
+        </ul>
+      </div>
+
+      <section class="fileset-panel" id="filesetInventoryPanel" role="tabpanel" aria-labelledby="filesetInventoryTab">
             <div class="fileset-heading">
               <div>
                 <p class="eyebrow">Inventory</p>
@@ -354,6 +361,22 @@
               </table>
             </div>
       </section>
+
+      <section class="fileset-panel" id="storagePoliciesPanel" role="tabpanel" aria-labelledby="storagePoliciesTab" hidden>
+        <div class="fileset-heading">
+          <div>
+            <p class="eyebrow">Billing configuration</p>
+            <h2 class="title is-5">Storage policies</h2>
+          </div>
+          <p class="policy-help">Editing schedules a new effective-dated policy.</p>
+        </div>
+        <p class="notification is-danger is-light chart-error" id="policyTableError" hidden></p>
+        <div class="fileset-table-wrap">
+          <table id="policyTable" class="display" style="width:100%">
+            <thead><tr><th>History</th><th>Group name</th><th>Policy type</th><th>Retention</th><th>Billing grace</th><th>Rate</th><th>From</th><th>Until</th><th>Notes</th><th>Edit</th></tr></thead>
+          </table>
+        </div>
+      </section>
     </section>
 
     <section class="app-view future-view" id="computeView" hidden>
@@ -375,6 +398,73 @@
       </div>
     </section>
   </main>
+
+  <div id="policy-modal" class="modal" aria-labelledby="policyModalTitle" aria-modal="true" role="dialog">
+    <div class="modal-background"></div>
+    <div class="modal-card policy-modal-card">
+      <header class="modal-card-head">
+        <div>
+          <p class="modal-card-title" id="policyModalTitle">Schedule policy change</p>
+          <p class="policy-modal-subtitle">A new history row will be created and the preceding policy will end the day before.</p>
+        </div>
+        <button class="delete" aria-label="Close" id="closePolicyModal" type="button"></button>
+      </header>
+      <form id="policyForm">
+        <section class="modal-card-body">
+          <input type="hidden" id="policyGroupId">
+          <div class="field">
+            <label class="label" for="policyGroupName">Group</label>
+            <input class="input" id="policyGroupName" type="text" readonly>
+          </div>
+          <div class="field">
+            <label class="label" for="policyType">Policy type</label>
+            <div class="select is-fullwidth">
+              <select id="policyType" required>
+                <option value="TEMPORARY">TEMPORARY</option>
+                <option value="AGREEMENT">AGREEMENT</option>
+                <option value="CORE">CORE</option>
+              </select>
+            </div>
+          </div>
+          <div class="policy-form-grid">
+            <div class="field">
+              <label class="label" for="policyGraceDays">Retention period</label>
+              <div class="control has-icons-right">
+                <input class="input" id="policyGraceDays" type="number" min="0" max="36500" step="1" required>
+                <span class="icon is-small is-right policy-unit">days</span>
+              </div>
+              <p class="help" id="policyGraceHelp"></p>
+            </div>
+            <div class="field">
+              <label class="label" for="policyBillingGraceDays">Billing grace</label>
+              <div class="control has-icons-right">
+                <input class="input" id="policyBillingGraceDays" type="number" min="0" max="3650" step="1" required>
+                <span class="icon is-small is-right policy-unit">days</span>
+              </div>
+            </div>
+            <div class="field">
+              <label class="label" for="policyRate">Rate</label>
+              <input class="input" id="policyRate" type="number" min="0" max="99999999.9999" step="0.0001" required>
+              <p class="help">öre / GB / day</p>
+            </div>
+            <div class="field">
+              <label class="label" for="policyValidFrom">Effective from</label>
+              <input class="input" id="policyValidFrom" type="date" required>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label" for="policyNotes">Notes</label>
+            <textarea class="textarea" id="policyNotes" maxlength="2000" rows="3"></textarea>
+          </div>
+          <p class="notification is-danger is-light" id="policyFormError" hidden></p>
+        </section>
+        <footer class="modal-card-foot is-justify-content-space-between">
+          <button class="button" id="cancelPolicyEdit" type="button">Cancel</button>
+          <button class="button is-link" id="savePolicy" type="submit">Save change</button>
+        </footer>
+      </form>
+    </div>
+  </div>
 
   <div id="password-modal" class="modal">
     <div class="modal-background"></div>
