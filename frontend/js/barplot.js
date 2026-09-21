@@ -482,6 +482,16 @@ function reloadFilesetTable() {
   if (filesetTableInstance) filesetTableInstance.ajax.reload();
 }
 
+function resetFilesetFilters() {
+  document.getElementById('filesetSearch').value = '';
+  document.getElementById('filesetGroupSelect').value = 'all';
+  document.getElementById('filesetStatusSelect').value = 'active';
+  document.getElementById('filesetImportedSelect').value = 'all';
+  document.getElementById('filesetSizeSelect').value = 'any';
+  document.getElementById('filesetOrderSelect').value = 'largest';
+  reloadFilesetTable();
+}
+
 function initializeFilesetTable() {
   if (filesetTableInstance) {
     filesetTableInstance.ajax.reload(null, false);
@@ -880,7 +890,10 @@ async function fetchAndRenderOmeroSummary() {
 
 async function fetchAndRenderGroupRanking() {
   const filters = getOmeroFilters();
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({
+    limit: document.getElementById('groupRankingLimit').value,
+    policy_type: document.getElementById('groupRankingPolicy').value,
+  });
   const errorElement = document.getElementById('groupRankingError');
 
   if (filters.startDate && filters.endDate) {
@@ -908,7 +921,9 @@ function formatTrend(change) {
 function renderGroupRanking(data) {
   const chart = document.getElementById('groupRankingChart');
   const period = document.getElementById('groupRankingPeriod');
+  const limit = document.getElementById('groupRankingLimit').value;
   const groups = data.groups || [];
+  document.getElementById('groupRankingLimitLabel').textContent = `Top ${limit} groups`;
   period.textContent = data.comparison_date
     ? `${data.snapshot_date} vs ${data.comparison_date}`
     : data.snapshot_date || 'No snapshots available';
@@ -923,54 +938,98 @@ function renderGroupRanking(data) {
   chart.classList.remove('is-empty');
   chart.textContent = '';
   const labels = groups.map((group) => group.group_name);
-  const values = groups.map((group) => Number(group.billable_gb));
-  const text = groups.map((group) =>
-    `${formatNumber(group.billable_gb, 1)} GB · ${formatTrend(group.change_percent)}`);
+  const groupKeys = groups.map((group) => String(group.group_id));
+  const billableValues = groups.map((group) => Number(group.billable_gb));
+  const freeValues = groups.map((group) => Number(group.free_gb));
+  const totalValues = groups.map((group, index) => billableValues[index] + freeValues[index]);
   const customdata = groups.map((group) => [
     group.group_id,
+    group.group_name,
     formatTrend(group.change_percent),
     group.billable_fileset_count,
     group.daily_charge_sek,
     group.previous_billable_gb === null
       ? 'No comparison'
       : `${formatNumber(group.previous_billable_gb, 2)} GB`,
+    group.policy_type,
+    Number(group.billable_gb) + Number(group.free_gb) > 0
+      ? (Number(group.billable_gb) / (Number(group.billable_gb) + Number(group.free_gb))) * 100
+      : 0,
+    Number(group.billable_gb) + Number(group.free_gb) > 0
+      ? (Number(group.free_gb) / (Number(group.billable_gb) + Number(group.free_gb))) * 100
+      : 0,
   ]);
+  const maxTotal = Math.max(...totalValues, 0);
 
-  Plotly.react(chart, [{
-    type: 'bar',
-    orientation: 'h',
-    x: values,
-    y: labels,
-    text,
-    textposition: 'outside',
-    cliponaxis: false,
-    marker: { color: '#2457d6' },
-    customdata,
-    hovertemplate: [
-      '<b>%{y}</b>',
-      '<br>Billable storage: %{x:,.2f} GB',
-      '<br>Change: %{customdata[1]}',
-      '<br>Previous billable storage: %{customdata[4]}',
-      '<br>Billable filesets: %{customdata[2]:,.0f}',
-      '<br>Daily charge: %{customdata[3]:,.2f} SEK',
-      '<extra></extra>',
-    ].join(''),
-  }], {
-    height: Math.max(360, groups.length * 42 + 100),
-    margin: { l: 170, r: 150, t: 10, b: 55 },
+  Plotly.react(chart, [
+    {
+      name: 'Billable',
+      type: 'bar',
+      orientation: 'h',
+      x: billableValues,
+      y: groupKeys,
+      marker: { color: '#2457d6' },
+      customdata,
+      hovertemplate: [
+        '<b>%{customdata[1]}</b> · %{customdata[6]}',
+        '<br>Billable storage: %{x:,.2f} GB (%{customdata[7]:.1f}%)',
+        '<br>Change: %{customdata[2]}',
+        '<br>Previous billable storage: %{customdata[5]}',
+        '<br>Billable filesets: %{customdata[3]:,.0f}',
+        '<br>Daily charge: %{customdata[4]:,.2f} SEK',
+        '<extra></extra>',
+      ].join(''),
+    },
+    {
+      name: 'Free',
+      type: 'bar',
+      orientation: 'h',
+      x: freeValues,
+      y: groupKeys,
+      marker: { color: '#9dd9d2' },
+      customdata,
+      hovertemplate: [
+        '<b>%{customdata[1]}</b> · %{customdata[6]}',
+        '<br>Free storage: %{x:,.2f} GB (%{customdata[8]:.1f}%)',
+        '<br>Billable storage: %{customdata[7]:.1f}% of total',
+        '<extra></extra>',
+      ].join(''),
+    },
+  ], {
+    height: Math.max(380, groups.length * 30 + 130),
+    margin: { l: 170, r: 30, t: 55, b: 55 },
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: 'rgba(0,0,0,0)',
     font: { family: 'inherit', color: '#24324a' },
+    barmode: 'stack',
     bargap: 0.28,
+    legend: {
+      orientation: 'h',
+      x: 0,
+      y: 1.08,
+    },
+    annotations: groups.map((group, index) => ({
+      x: totalValues[index],
+      y: groupKeys[index],
+      xshift: 8,
+      xanchor: 'left',
+      text: `${formatNumber(group.billable_gb, 1)} GB billable · ${formatTrend(group.change_percent)}`,
+      showarrow: false,
+      font: { color: '#475569', size: 11 },
+    })),
     xaxis: {
-      title: 'Billable storage (GB)',
+      title: 'Storage (GB)',
       rangemode: 'tozero',
+      range: [0, maxTotal > 0 ? maxTotal * 1.35 : 1],
       gridcolor: '#e2e8f0',
       zeroline: false,
     },
     yaxis: {
       categoryorder: 'array',
-      categoryarray: labels,
+      categoryarray: groupKeys,
+      tickmode: 'array',
+      tickvals: groupKeys,
+      ticktext: labels,
       autorange: 'reversed',
       automargin: true,
     },
@@ -982,9 +1041,12 @@ function renderGroupRanking(data) {
   if (typeof chart.removeAllListeners === 'function') chart.removeAllListeners('plotly_click');
   chart.on('plotly_click', (event) => {
     const groupId = String(event.points[0].customdata[0]);
-    const groupSelect = document.getElementById('filesetGroupSelect');
+    const historyGroupSelect = document.getElementById('omeroGroupSelect');
+    const filesetGroupSelect = document.getElementById('filesetGroupSelect');
     activateOmeroDataTab('filesets');
-    groupSelect.value = groupId;
+    historyGroupSelect.value = groupId;
+    filesetGroupSelect.value = groupId;
+    fetchAndRenderOmeroHistory();
     reloadFilesetTable();
     document.getElementById('filesetTableTitle').scrollIntoView({
       behavior: 'smooth',
@@ -1179,6 +1241,8 @@ document.getElementById('omeroGroupSelect').addEventListener('change', fetchAndR
 document.getElementById('omeroMetricSelect').addEventListener('change', fetchAndRenderOmeroHistory);
 document.getElementById('omeroStartDate').addEventListener('change', refreshOmeroDashboard);
 document.getElementById('omeroEndDate').addEventListener('change', refreshOmeroDashboard);
+document.getElementById('groupRankingLimit').addEventListener('change', fetchAndRenderGroupRanking);
+document.getElementById('groupRankingPolicy').addEventListener('change', fetchAndRenderGroupRanking);
 
 document.getElementById('filesetInventoryTab').addEventListener('click', () => {
   activateOmeroDataTab('filesets');
@@ -1244,6 +1308,7 @@ document.getElementById('filesetSearch').addEventListener('input', () => {
   'filesetSizeSelect',
   'filesetOrderSelect',
 ].forEach((id) => document.getElementById(id).addEventListener('change', reloadFilesetTable));
+document.getElementById('resetFilesetFilters').addEventListener('click', resetFilesetFilters);
 
 updateCustomDateVisibility();
 updateOmeroCustomDateVisibility();

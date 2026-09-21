@@ -302,14 +302,37 @@
       <section class="group-ranking-panel" aria-labelledby="groupRankingTitle">
         <div class="group-ranking-heading">
           <div>
-            <p class="eyebrow">Top 10 groups</p>
-            <h2 class="title is-5" id="groupRankingTitle">Billable storage by group</h2>
+            <p class="eyebrow" id="groupRankingLimitLabel">Top 10 groups</p>
+            <h2 class="title is-5" id="groupRankingTitle">Billable and free storage by group</h2>
           </div>
-          <p id="groupRankingPeriod">—</p>
+          <div class="group-ranking-options" aria-label="Group ranking filters">
+            <label class="field">
+              <span class="label">Policy</span>
+              <span class="select">
+                <select id="groupRankingPolicy">
+                  <option value="all" selected>All policies</option>
+                  <option value="TEMPORARY">Temporary</option>
+                  <option value="AGREEMENT">Agreement</option>
+                  <option value="CORE">Core</option>
+                </select>
+              </span>
+            </label>
+            <label class="field">
+              <span class="label">Show</span>
+              <span class="select">
+                <select id="groupRankingLimit">
+                  <option value="10" selected>Top 10</option>
+                  <option value="25">Top 25</option>
+                  <option value="50">Top 50</option>
+                </select>
+              </span>
+            </label>
+            <p id="groupRankingPeriod">—</p>
+          </div>
         </div>
         <p class="notification is-danger is-light chart-error" id="groupRankingError" hidden></p>
-        <div id="groupRankingChart" role="img" aria-label="Top ten groups ranked by billable storage"></div>
-        <p class="group-ranking-hint">Select a bar to filter the fileset table by that group.</p>
+        <div id="groupRankingChart" role="img" aria-label="Groups ranked by billable storage, with free storage shown alongside"></div>
+        <p class="group-ranking-hint">Select a bar to filter the history graph and fileset inventory by that group.</p>
       </section>
 
       <div class="tabs is-boxed omero-data-tabs" role="tablist" aria-label="OMERO data tables">
@@ -352,6 +375,10 @@
                 <span class="label">Order</span>
                 <span class="select"><select id="filesetOrderSelect"><option value="largest">Largest filesets</option><option value="oldest">Oldest filesets</option><option value="newest">Newest filesets</option><option value="billable">Billable only</option><option value="overdue">Overdue only</option></select></span>
               </label>
+              <button class="button is-light fileset-reset" id="resetFilesetFilters" type="button">
+                <span class="icon is-small"><i class="fas fa-rotate-left" aria-hidden="true"></i></span>
+                <span>Reset filters</span>
+              </button>
             </div>
 
             <p class="notification is-danger is-light chart-error" id="filesetTableError" hidden></p>

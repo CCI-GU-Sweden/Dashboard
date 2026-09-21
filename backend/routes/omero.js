@@ -243,6 +243,29 @@ function getSummaryComparison(query) {
   };
 }
 
+function buildRankingOptions(query, comparisonValues) {
+  const limitValue = String(query.limit ?? '10');
+  const policyType = String(query.policy_type ?? 'all');
+
+  if (!['10', '25', '50'].includes(limitValue)) return null;
+  if (!['all', 'TEMPORARY', 'AGREEMENT', 'CORE'].includes(policyType)) return null;
+
+  const values = [...comparisonValues];
+  let policyCondition = '';
+  if (policyType !== 'all') {
+    values.push(policyType);
+    policyCondition = `AND current_group.policy_type = $${values.length}`;
+  }
+
+  values.push(Number(limitValue));
+  return {
+    values,
+    policyType,
+    policyCondition,
+    limitPlaceholder: `$${values.length}::int`,
+  };
+}
+
 function percentageChange(current, previous) {
   if (previous === null || previous === undefined) return null;
   if (previous === 0) return current > 0 ? 100 : 0;
@@ -326,9 +349,10 @@ router.get('/groups', authMiddleware, async (req, res) => {
 
 router.get('/groups/ranking', authMiddleware, async (req, res) => {
   const comparison = getSummaryComparison(req.query);
+  const ranking = comparison && buildRankingOptions(req.query, comparison.values);
 
-  if (!comparison) {
-    return res.status(400).json({ error: 'Invalid date range or period' });
+  if (!comparison || !ranking) {
+    return res.status(400).json({ error: 'Invalid date range, period, limit, or policy type' });
   }
 
   try {
@@ -349,7 +373,12 @@ router.get('/groups/ranking', authMiddleware, async (req, res) => {
         current_group.group_name,
         current_group.snapshot_date,
         comparison_snapshot.snapshot_date AS comparison_date,
+        current_group.policy_type,
         current_group.billable_bytes::numeric / 1000000000::numeric AS billable_gb,
+        GREATEST(
+          current_group.total_bytes::numeric - current_group.billable_bytes::numeric,
+          0
+        ) / 1000000000::numeric AS free_gb,
         previous.billable_bytes::numeric / 1000000000::numeric AS previous_billable_gb,
         current_group.billable_fileset_count,
         current_group.daily_charge_ore::numeric / 100::numeric AS daily_charge_sek
@@ -360,9 +389,10 @@ router.get('/groups/ranking', authMiddleware, async (req, res) => {
         ON previous.snapshot_date = comparison_snapshot.snapshot_date
         AND previous.group_id = current_group.group_id
       WHERE current_group.snapshot_date = current_snapshot.snapshot_date
+        ${ranking.policyCondition}
       ORDER BY current_group.billable_bytes DESC, current_group.group_name, current_group.group_id
-      LIMIT 10
-    `, comparison.values);
+      LIMIT ${ranking.limitPlaceholder}
+    `, ranking.values);
 
     const formatDate = (value) => {
       if (!value) return null;
@@ -380,7 +410,9 @@ router.get('/groups/ranking', authMiddleware, async (req, res) => {
         return {
           group_id: String(row.group_id),
           group_name: row.group_name,
+          policy_type: row.policy_type,
           billable_gb: billableGb,
+          free_gb: Number(row.free_gb) || 0,
           previous_billable_gb: previousBillableGb,
           change_percent: percentageChange(billableGb, previousBillableGb),
           billable_fileset_count: Number(row.billable_fileset_count) || 0,
@@ -697,4 +729,5 @@ pendingEndpoints.forEach((endpoint) => {
 
 module.exports = router;
 module.exports.buildFilesetQuery = buildFilesetQuery;
+module.exports.buildRankingOptions = buildRankingOptions;
 module.exports.normalizePolicyInput = normalizePolicyInput;

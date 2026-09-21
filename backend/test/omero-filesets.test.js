@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 
 const pool = require('../db');
 const omeroRouter = require('../routes/omero');
-const { buildFilesetQuery, normalizePolicyInput } = omeroRouter;
+const { buildFilesetQuery, buildRankingOptions, normalizePolicyInput } = omeroRouter;
 
 test('fileset query defaults to active filesets ordered by size', () => {
   const query = buildFilesetQuery({});
@@ -58,19 +58,38 @@ test('fileset query applies policy-based billable and overdue filters', () => {
   assert.doesNotMatch(overdue.where, /sp\.billing_grace_days/);
 });
 
+test('group ranking validates its limit and policy filters', () => {
+  assert.deepEqual(buildRankingOptions({}, [30]), {
+    values: [30, 10],
+    policyType: 'all',
+    policyCondition: '',
+    limitPlaceholder: '$2::int',
+  });
+
+  const filtered = buildRankingOptions({ limit: '50', policy_type: 'CORE' }, [30]);
+  assert.deepEqual(filtered.values, [30, 'CORE', 50]);
+  assert.equal(filtered.policyCondition, 'AND current_group.policy_type = $2');
+  assert.equal(filtered.limitPlaceholder, '$3::int');
+  assert.equal(buildRankingOptions({ limit: '100' }, [30]), null);
+  assert.equal(buildRankingOptions({ policy_type: 'INVALID' }, [30]), null);
+});
+
 test('group ranking returns top-group metrics and comparison percentage', async () => {
   const originalQuery = pool.query;
   pool.query = async (sql, values) => {
     assert.match(sql, /ORDER BY current_group\.billable_bytes DESC/);
-    assert.match(sql, /LIMIT 10/);
-    assert.deepEqual(values, [30]);
+    assert.match(sql, /current_group\.total_bytes::numeric - current_group\.billable_bytes::numeric/);
+    assert.match(sql, /LIMIT \$2::int/);
+    assert.deepEqual(values, [30, 10]);
     return {
       rows: [{
         group_id: '12',
         group_name: 'Imaging',
         snapshot_date: '2026-09-15',
         comparison_date: '2026-08-16',
+        policy_type: 'TEMPORARY',
         billable_gb: '15',
+        free_gb: '5',
         previous_billable_gb: '10',
         billable_fileset_count: '4',
         daily_charge_sek: '0.75',
@@ -92,6 +111,8 @@ test('group ranking returns top-group metrics and comparison percentage', async 
 
     assert.equal(response.status, 200);
     assert.equal(body.groups[0].change_percent, 50);
+    assert.equal(body.groups[0].policy_type, 'TEMPORARY');
+    assert.equal(body.groups[0].free_gb, 5);
     assert.equal(body.groups[0].billable_fileset_count, 4);
     assert.equal(body.groups[0].daily_charge_sek, 0.75);
   } finally {
