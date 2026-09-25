@@ -88,6 +88,46 @@ test('group ranking validates its limit and policy filters', () => {
   assert.equal(buildRankingOptions({ policy_type: 'INVALID' }, [30]), null);
 });
 
+test('group history keeps collector dates after all group data is deleted', async () => {
+  const originalQuery = pool.query;
+  pool.query = async (sql, values) => {
+    assert.deepEqual(values, [30, '12']);
+    assert.match(sql, /SELECT DISTINCT snapshot_date\s+FROM filtered_snapshots/);
+    assert.match(sql, /WHERE group_id = \$2::bigint/);
+    assert.match(sql, /LEFT JOIN selected_history USING \(snapshot_date\)/);
+    assert.match(sql, /COALESCE\(selected_history\.total_value, 0\)/);
+
+    return {
+      rows: [
+        { snapshot_date: '2026-09-19', total_value: '450', billable_value: '400' },
+        { snapshot_date: '2026-09-20', total_value: '0', billable_value: '0' },
+      ],
+    };
+  };
+
+  const app = express();
+  app.use('/api/omero', omeroRouter);
+  const server = app.listen(0);
+
+  try {
+    const token = jwt.sign({ access: true }, 'supersecret');
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/omero/history?period=30&groupId=12`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.history, [
+      { date: '2026-09-19', total: 450, billable: 400 },
+      { date: '2026-09-20', total: 0, billable: 0 },
+    ]);
+  } finally {
+    pool.query = originalQuery;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('group ranking returns top-group metrics and comparison percentage', async () => {
   const originalQuery = pool.query;
   pool.query = async (sql, values) => {

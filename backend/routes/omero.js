@@ -192,31 +192,31 @@ function isIsoDate(value) {
 }
 
 function buildHistoryFilters(query) {
-  const filters = [];
   const values = [];
+  let dateWhere;
 
   if (query.startDate || query.endDate) {
     if (!isIsoDate(query.startDate) || !isIsoDate(query.endDate)) return null;
     if (query.startDate > query.endDate) return null;
     values.push(query.startDate, query.endDate);
-    filters.push(`snapshot_date >= $1::date AND snapshot_date <= $2::date`);
+    dateWhere = `snapshot_date >= $1::date AND snapshot_date <= $2::date`;
   } else {
     const periodValue = query.period ?? '30';
     if (!/^\d+$/.test(periodValue)) return null;
     const period = Number(periodValue);
     if (!Number.isSafeInteger(period) || period < 1 || period > 3650) return null;
     values.push(period);
-    filters.push(`snapshot_date >= CURRENT_DATE - ($1::int * INTERVAL '1 day')`);
+    dateWhere = `snapshot_date >= CURRENT_DATE - ($1::int * INTERVAL '1 day')`;
   }
 
+  let groupWhere = '';
   if (query.groupId && query.groupId !== 'all') {
     if (!/^\d+$/.test(query.groupId)) return null;
     values.push(query.groupId);
-    filters.push(`group_id = $${values.length}::bigint`);
+    groupWhere = `WHERE group_id = $${values.length}::bigint`;
   }
 
-
-  return { values, where: filters.join(' AND ') };
+  return { values, dateWhere, groupWhere };
 }
 
 function getSummaryComparison(query) {
@@ -313,14 +313,31 @@ router.get('/history', authMiddleware, async (req, res) => {
 
   try {
     const result = await pool.query(`
+      WITH filtered_snapshots AS (
+        SELECT *
+        FROM group_storage_snapshot
+        WHERE ${filters.dateWhere}
+      ),
+      snapshot_dates AS (
+        SELECT DISTINCT snapshot_date
+        FROM filtered_snapshots
+      ),
+      selected_history AS (
+        SELECT
+          snapshot_date,
+          ${totalExpression} AS total_value,
+          ${billableExpression} AS billable_value
+        FROM filtered_snapshots
+        ${filters.groupWhere}
+        GROUP BY snapshot_date
+      )
       SELECT
-        snapshot_date,
-        ${totalExpression} AS total_value,
-        ${billableExpression} AS billable_value
-      FROM group_storage_snapshot
-      WHERE ${filters.where}
-      GROUP BY snapshot_date
-      ORDER BY snapshot_date
+        snapshot_dates.snapshot_date,
+        COALESCE(selected_history.total_value, 0) AS total_value,
+        COALESCE(selected_history.billable_value, 0) AS billable_value
+      FROM snapshot_dates
+      LEFT JOIN selected_history USING (snapshot_date)
+      ORDER BY snapshot_dates.snapshot_date
     `, filters.values);
 
     return res.json({
