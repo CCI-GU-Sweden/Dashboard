@@ -514,6 +514,12 @@ function buildStorageEmail(draft) {
   const dailySek = emailNumber(draft.daily_charge_sek, 2);
   const rate = emailNumber(draft.policy.rate_ore_per_gb_day, 4);
   const groupName = draft.group_name;
+  const remainingBillingGraceDays = Math.max(
+    0,
+    Number(draft.policy.billing_grace_days || 0) - 2,
+  );
+  const billingGraceLabel = `${remainingBillingGraceDays} day${remainingBillingGraceDays === 1 ? '' : 's'}`;
+  const billingGraceReference = `${remainingBillingGraceDays === 1 ? 'this' : 'these'} ${billingGraceLabel}`;
   let policyParagraphs;
 
   if (draft.policy.type === 'TEMPORARY') {
@@ -522,13 +528,13 @@ function buildStorageEmail(draft) {
       `Most importantly, ${billableGb} GB is now outside the ${retentionDays}-day free storage period provided by the CCI. Your group does not currently have a data storage agreement with the CCI.`,
       `As a reminder, OMERO storage is free of charge for the first ${retentionDays} days after upload, primarily to allow data to be transferred from the microscopes to your own storage solution. Data kept on OMERO beyond this period is subject to a storage fee.`,
       'Alternatively, if you would like to continue storing the data on OMERO, we can arrange a data storage agreement with the CCI.',
-      `Please review your data within 2 days of receiving this email. This is your billing grace period: after these 2 days, data remaining on OMERO beyond the ${retentionDays}-day free storage period will be charged at ${rate} öre/GB/day. At your current billable storage usage, this corresponds to approximately ${dailySek} SEK per day.`,
+      `Please review your data within ${billingGraceLabel} of receiving this email. This is your billing grace period: after ${billingGraceReference}, data remaining on OMERO beyond the ${retentionDays}-day free storage period will be charged at ${rate} öre/GB/day. At your current billable storage usage, this corresponds to approximately ${dailySek} SEK per day.`,
     ];
   } else if (draft.policy.type === 'AGREEMENT') {
     policyParagraphs = [
       `Your group currently has a data storage agreement with the CCI. Under this agreement, ${billableGb} GB is billable at ${rate} öre/GB/day, corresponding to approximately ${dailySek} SEK per day.`,
       'If any of this data is no longer needed on OMERO, please remove it yourself. The CCI will not delete users’ data on their behalf, as we cannot determine whether a particular dataset has been safely copied or is still needed.',
-      'Please review the current usage within 2 days of receiving this email and let us know if the data should not remain under the agreement.',
+      `Please review the current usage within ${billingGraceLabel} of receiving this email and let us know if the data should not remain under the agreement.`,
     ];
   } else {
     policyParagraphs = [
@@ -1063,7 +1069,10 @@ function renderGroupRanking(data) {
   chart.classList.remove('is-empty');
   chart.textContent = '';
   const labels = groups.map((group) => group.group_name);
-  const groupKeys = groups.map((group) => String(group.group_id));
+  // Prefix the IDs so Plotly cannot coerce numeric-looking group IDs into a
+  // continuous axis. A continuous Y-axis spreads sparse IDs apart, making
+  // larger result sets look tiny or disappear entirely.
+  const groupKeys = groups.map((group) => `group-${group.group_id}`);
   const billableValues = groups.map((group) => Number(group.billable_gb));
   const freeValues = groups.map((group) => Number(group.free_gb));
   const totalValues = groups.map((group, index) => billableValues[index] + freeValues[index]);
@@ -1150,6 +1159,7 @@ function renderGroupRanking(data) {
       zeroline: false,
     },
     yaxis: {
+      type: 'category',
       categoryorder: 'array',
       categoryarray: groupKeys,
       tickmode: 'array',

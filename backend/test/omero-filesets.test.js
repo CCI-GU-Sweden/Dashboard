@@ -186,6 +186,7 @@ test('group email draft combines the latest snapshot, policy, and active owner e
     assert.equal(body.daily_charge_sek, 3.3216);
     assert.equal(body.policy.type, 'TEMPORARY');
     assert.equal(body.policy.retention_days, 28);
+    assert.equal(body.policy.billing_grace_days, 2);
     assert.equal(body.policy.rate_ore_per_gb_day, 1.2);
   } finally {
     pool.query = originalQuery;
