@@ -1066,8 +1066,11 @@ function renderGroupRanking(data) {
     return;
   }
 
+  // Plotly.react reuses its existing DOM. Clearing the element here corrupts
+  // that state and makes subsequent limit/filter changes render a blank chart.
+  // Only remove the text placeholder left by the explicit no-data state.
+  if (chart.classList.contains('is-empty')) chart.textContent = '';
   chart.classList.remove('is-empty');
-  chart.textContent = '';
   const labels = groups.map((group) => group.group_name);
   // Prefix the IDs so Plotly cannot coerce numeric-looking group IDs into a
   // continuous axis. A continuous Y-axis spreads sparse IDs apart, making
