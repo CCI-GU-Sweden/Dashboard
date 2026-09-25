@@ -489,7 +489,132 @@ function resetFilesetFilters() {
   document.getElementById('filesetImportedSelect').value = 'all';
   document.getElementById('filesetSizeSelect').value = 'any';
   document.getElementById('filesetOrderSelect').value = 'largest';
+  updateGenerateEmailButton();
   reloadFilesetTable();
+}
+
+function updateGenerateEmailButton() {
+  const groupId = document.getElementById('filesetGroupSelect').value;
+  const button = document.getElementById('generateEmailButton');
+  const hasSelectedGroup = groupId !== 'all';
+  button.disabled = !hasSelectedGroup;
+  button.title = hasSelectedGroup ? 'Generate a storage email for this group' : 'Select one group first';
+}
+
+function emailNumber(value, maximumFractionDigits = 2) {
+  return Number(value).toLocaleString('en-US', {
+    minimumFractionDigits: Math.min(1, maximumFractionDigits),
+    maximumFractionDigits,
+  });
+}
+
+function buildStorageEmail(draft) {
+  const totalGb = emailNumber(draft.total_gb, 1);
+  const billableGb = emailNumber(draft.billable_gb, 1);
+  const dailySek = emailNumber(draft.daily_charge_sek, 2);
+  const rate = emailNumber(draft.policy.rate_ore_per_gb_day, 4);
+  const groupName = draft.group_name;
+  let policyParagraphs;
+
+  if (draft.policy.type === 'TEMPORARY') {
+    const retentionDays = Number(draft.policy.retention_days) || 0;
+    policyParagraphs = [
+      `Most importantly, ${billableGb} GB is now outside the ${retentionDays}-day free storage period provided by the CCI. Your group does not currently have a data storage agreement with the CCI.`,
+      `As a reminder, OMERO storage is free of charge for the first ${retentionDays} days after upload, primarily to allow data to be transferred from the microscopes to your own storage solution. Data kept on OMERO beyond this period is subject to a storage fee.`,
+      'Alternatively, if you would like to continue storing the data on OMERO, we can arrange a data storage agreement with the CCI.',
+      `Please review your data within 2 days of receiving this email. This is your billing grace period: after these 2 days, data remaining on OMERO beyond the ${retentionDays}-day free storage period will be charged at ${rate} öre/GB/day. At your current billable storage usage, this corresponds to approximately ${dailySek} SEK per day.`,
+    ];
+  } else if (draft.policy.type === 'AGREEMENT') {
+    policyParagraphs = [
+      `Your group currently has a data storage agreement with the CCI. Under this agreement, ${billableGb} GB is billable at ${rate} öre/GB/day, corresponding to approximately ${dailySek} SEK per day.`,
+      'If any of this data is no longer needed on OMERO, please remove it yourself. The CCI will not delete users’ data on their behalf, as we cannot determine whether a particular dataset has been safely copied or is still needed.',
+      'Please review the current usage within 2 days of receiving this email and let us know if the data should not remain under the agreement.',
+    ];
+  } else {
+    policyParagraphs = [
+      'Your group currently has a CORE storage policy, so its OMERO storage is not billed.',
+      'Even though there is no storage charge, please remove data that is no longer needed after confirming that it has been safely copied elsewhere.',
+    ];
+  }
+
+  const paragraphs = [
+    `Hello members of ${groupName},`,
+    `We are tracking data storage more closely on the OMERO server. According to the latest inventory, your group currently has ${totalGb} GB of data stored there.`,
+    ...policyParagraphs.slice(0, 2),
+  ];
+
+  if (draft.policy.type === 'TEMPORARY') {
+    paragraphs.push(
+      'If you have already copied the data to your local storage and no longer need it on OMERO, please remove the files from OMERO yourself. The CCI will not delete users’ data on their behalf, as we cannot determine whether a particular dataset has been safely copied or is still needed.',
+      ...policyParagraphs.slice(2),
+    );
+  } else {
+    paragraphs.push(...policyParagraphs.slice(2));
+  }
+
+  paragraphs.push(
+    'Please let us know if you have any questions.',
+    'Best regards,\n\nSimon',
+  );
+
+  return {
+    subject: `Action requested: OMERO storage for ${groupName}`,
+    body: paragraphs.join('\n\n'),
+  };
+}
+
+async function openEmailModal() {
+  const groupId = document.getElementById('filesetGroupSelect').value;
+  if (groupId === 'all') return;
+
+  const modal = document.getElementById('email-modal');
+  const button = document.getElementById('generateEmailButton');
+  const fields = document.getElementById('emailDraftFields');
+  const errorElement = document.getElementById('emailDraftError');
+  fields.hidden = true;
+  errorElement.hidden = true;
+  button.disabled = true;
+  button.classList.add('is-loading');
+  modal.classList.add('is-active');
+
+  try {
+    const draft = await fetchJson(`/api/omero/groups/${groupId}/email-draft`);
+    const email = buildStorageEmail(draft);
+    document.getElementById('emailModalTitle').textContent = `Storage notice · ${draft.group_name}`;
+    document.getElementById('emailModalSummary').textContent =
+      `${draft.policy.type} policy · ${emailNumber(draft.billable_gb, 1)} GB billable · ${emailNumber(draft.daily_charge_sek, 2)} SEK/day`;
+    document.getElementById('emailRecipients').value = draft.recipients.join(', ');
+    document.getElementById('emailRecipientCount').textContent = draft.recipients.length
+      ? `${draft.recipients.length} unique active owner${draft.recipients.length === 1 ? '' : 's'}`
+      : 'No valid email addresses were found among the active fileset owners.';
+    document.getElementById('emailSubject').value = email.subject;
+    document.getElementById('emailBody').value = email.body;
+    fields.hidden = false;
+  } catch (error) {
+    errorElement.textContent = error.message;
+    errorElement.hidden = false;
+  } finally {
+    button.classList.remove('is-loading');
+    updateGenerateEmailButton();
+  }
+}
+
+function closeEmailModal() {
+  document.getElementById('email-modal').classList.remove('is-active');
+}
+
+async function copyEmailField(button) {
+  const field = document.getElementById(button.dataset.copyTarget);
+  try {
+    await navigator.clipboard.writeText(field.value);
+  } catch (error) {
+    field.select();
+    document.execCommand('copy');
+    field.setSelectionRange(0, 0);
+  }
+  const originalText = button.textContent;
+  button.textContent = 'Copied';
+  window.setTimeout(() => { button.textContent = originalText; }, 1500);
 }
 
 function initializeFilesetTable() {
@@ -1046,6 +1171,7 @@ function renderGroupRanking(data) {
     activateOmeroDataTab('filesets');
     historyGroupSelect.value = groupId;
     filesetGroupSelect.value = groupId;
+    updateGenerateEmailButton();
     fetchAndRenderOmeroHistory();
     reloadFilesetTable();
     document.getElementById('filesetTableTitle').scrollIntoView({
@@ -1251,6 +1377,14 @@ document.getElementById('storagePoliciesTab').addEventListener('click', () => {
   activateOmeroDataTab('policies');
 });
 
+document.getElementById('generateEmailButton').addEventListener('click', openEmailModal);
+document.getElementById('closeEmailModal').addEventListener('click', closeEmailModal);
+document.getElementById('closeEmailModalFooter').addEventListener('click', closeEmailModal);
+document.querySelector('#email-modal .modal-background').addEventListener('click', closeEmailModal);
+document.querySelectorAll('.email-copy-button').forEach((button) => {
+  button.addEventListener('click', () => copyEmailField(button));
+});
+
 document.getElementById('policyType').addEventListener('change', () => {
   updatePolicyFormForType(true);
 });
@@ -1308,11 +1442,13 @@ document.getElementById('filesetSearch').addEventListener('input', () => {
   'filesetSizeSelect',
   'filesetOrderSelect',
 ].forEach((id) => document.getElementById(id).addEventListener('change', reloadFilesetTable));
+document.getElementById('filesetGroupSelect').addEventListener('change', updateGenerateEmailButton);
 document.getElementById('resetFilesetFilters').addEventListener('click', resetFilesetFilters);
 
 updateCustomDateVisibility();
 updateOmeroCustomDateVisibility();
 setAuthenticatedState(Boolean(apiToken));
+updateGenerateEmailButton();
 
 const initialView = getViewFromPath();
 activateView(initialView, { historyMode: 'replace', loadData: Boolean(apiToken) });

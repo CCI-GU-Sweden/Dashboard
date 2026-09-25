@@ -348,10 +348,16 @@
                 <p class="eyebrow">Inventory</p>
                 <h2 class="title is-5" id="filesetTableTitle">Filesets</h2>
               </div>
-              <label class="fileset-search">
-                <span class="is-sr-only">Search filesets</span>
-                <input class="input" id="filesetSearch" type="search" placeholder="Search owner, group, or ID">
-              </label>
+              <div class="fileset-heading-actions">
+                <button class="button is-link" id="generateEmailButton" type="button" disabled title="Select one group first">
+                  <span class="icon"><i class="fas fa-envelope" aria-hidden="true"></i></span>
+                  <span>Generate email</span>
+                </button>
+                <label class="fileset-search">
+                  <span class="is-sr-only">Search filesets</span>
+                  <input class="input" id="filesetSearch" type="search" placeholder="Search owner, group, or ID">
+                </label>
+              </div>
             </div>
 
             <div class="fileset-filters" aria-label="Fileset filters">
@@ -425,6 +431,49 @@
       </div>
     </section>
   </main>
+
+  <div id="email-modal" class="modal" aria-labelledby="emailModalTitle" aria-modal="true" role="dialog">
+    <div class="modal-background"></div>
+    <div class="modal-card email-modal-card">
+      <header class="modal-card-head">
+        <div>
+          <p class="modal-card-title" id="emailModalTitle">Storage notice</p>
+          <p class="policy-modal-subtitle" id="emailModalSummary"></p>
+        </div>
+        <button class="delete" aria-label="Close" id="closeEmailModal" type="button"></button>
+      </header>
+      <section class="modal-card-body">
+        <p class="notification is-danger is-light" id="emailDraftError" hidden></p>
+        <div id="emailDraftFields">
+          <div class="field">
+            <div class="email-field-heading">
+              <label class="label" for="emailRecipients">Recipients (CSV)</label>
+              <button class="button is-small is-light email-copy-button" type="button" data-copy-target="emailRecipients">Copy</button>
+            </div>
+            <textarea class="textarea email-recipients" id="emailRecipients" rows="2" readonly></textarea>
+            <p class="help" id="emailRecipientCount"></p>
+          </div>
+          <div class="field">
+            <div class="email-field-heading">
+              <label class="label" for="emailSubject">Subject</label>
+              <button class="button is-small is-light email-copy-button" type="button" data-copy-target="emailSubject">Copy</button>
+            </div>
+            <input class="input" id="emailSubject" type="text" readonly>
+          </div>
+          <div class="field">
+            <div class="email-field-heading">
+              <label class="label" for="emailBody">Email body</label>
+              <button class="button is-small is-link email-copy-button" type="button" data-copy-target="emailBody">Copy email body</button>
+            </div>
+            <textarea class="textarea email-body" id="emailBody" rows="20" readonly></textarea>
+          </div>
+        </div>
+      </section>
+      <footer class="modal-card-foot is-justify-content-flex-end">
+        <button class="button" id="closeEmailModalFooter" type="button">Close</button>
+      </footer>
+    </div>
+  </div>
 
   <div id="policy-modal" class="modal" aria-labelledby="policyModalTitle" aria-modal="true" role="dialog">
     <div class="modal-background"></div>

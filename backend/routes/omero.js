@@ -281,6 +281,21 @@ function metric(currentRow, previousRow, column) {
   };
 }
 
+function extractOwnerEmails(rows) {
+  const emailPattern = /[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+/gi;
+  const emails = new Map();
+
+  rows.forEach(({ username }) => {
+    const matches = String(username || '').match(emailPattern) || [];
+    matches.forEach((email) => {
+      const normalized = email.toLowerCase();
+      if (!emails.has(normalized)) emails.set(normalized, email);
+    });
+  });
+
+  return [...emails.values()].sort((left, right) => left.localeCompare(right));
+}
+
 router.get('/history', authMiddleware, async (req, res) => {
   const metric = req.query.metric === 'ore' ? 'ore' : 'bytes';
   const filters = buildHistoryFilters(req.query);
@@ -343,6 +358,94 @@ router.get('/groups', authMiddleware, async (req, res) => {
     })));
   } catch (error) {
     console.error('Failed to fetch OMERO groups:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/groups/:groupId/email-draft', authMiddleware, async (req, res) => {
+  const { groupId } = req.params;
+  if (!/^\d+$/.test(groupId)) {
+    return res.status(400).json({ error: 'Invalid group ID' });
+  }
+
+  try {
+    const [groupResult, ownerResult] = await Promise.all([
+      pool.query(`
+        WITH latest_snapshot AS (
+          SELECT MAX(snapshot_date) AS snapshot_date
+          FROM public.group_storage_snapshot
+          WHERE group_id = $1::bigint
+        )
+        SELECT
+          snapshot.group_id,
+          snapshot.group_name,
+          snapshot.snapshot_date,
+          snapshot.total_bytes::numeric / 1000000000::numeric AS total_gb,
+          snapshot.billable_bytes::numeric / 1000000000::numeric AS billable_gb,
+          snapshot.daily_charge_ore::numeric / 100::numeric AS daily_charge_sek,
+          policy.policy_type,
+          policy.grace_days,
+          policy.billing_grace_days,
+          policy.rate_ore_per_gb_day
+        FROM public.group_storage_snapshot AS snapshot
+        JOIN latest_snapshot
+          ON latest_snapshot.snapshot_date = snapshot.snapshot_date
+        LEFT JOIN LATERAL (
+          SELECT
+            storage_policy.policy_type,
+            storage_policy.grace_days,
+            storage_policy.billing_grace_days,
+            storage_policy.rate_ore_per_gb_day
+          FROM public.storage_policy
+          WHERE storage_policy.group_id = snapshot.group_id
+            AND storage_policy.valid_from <= snapshot.snapshot_date
+            AND (
+              storage_policy.valid_until IS NULL
+              OR storage_policy.valid_until >= snapshot.snapshot_date
+            )
+          ORDER BY storage_policy.valid_from DESC
+          LIMIT 1
+        ) AS policy ON true
+        WHERE snapshot.group_id = $1::bigint
+      `, [groupId]),
+      pool.query(`
+        SELECT DISTINCT username
+        FROM public.omero_fileset
+        WHERE group_id = $1::bigint
+          AND deleted_at IS NULL
+          AND username IS NOT NULL
+        ORDER BY username
+      `, [groupId]),
+    ]);
+
+    if (!groupResult.rows.length) {
+      return res.status(404).json({ error: 'No storage snapshot exists for this group' });
+    }
+
+    const group = groupResult.rows[0];
+    if (!group.policy_type) {
+      return res.status(409).json({ error: 'No storage policy applies to this group snapshot' });
+    }
+
+    return res.json({
+      group_id: String(group.group_id),
+      group_name: group.group_name,
+      snapshot_date: group.snapshot_date instanceof Date
+        ? group.snapshot_date.toISOString().slice(0, 10)
+        : group.snapshot_date,
+      recipients: extractOwnerEmails(ownerResult.rows),
+      total_gb: Number(group.total_gb) || 0,
+      billable_gb: Number(group.billable_gb) || 0,
+      daily_charge_sek: Number(group.daily_charge_sek) || 0,
+      policy: {
+        type: group.policy_type,
+        retention_days: group.grace_days === null ? null : Number(group.grace_days),
+        billing_grace_days: Number(group.billing_grace_days) || 0,
+        rate_ore_per_gb_day: Number(group.rate_ore_per_gb_day) || 0,
+      },
+    });
+  } catch (error) {
+    console.error('Failed to prepare OMERO group email:', error.message);
     return res.status(500).json({ error: error.message });
   }
 });
@@ -731,3 +834,4 @@ module.exports = router;
 module.exports.buildFilesetQuery = buildFilesetQuery;
 module.exports.buildRankingOptions = buildRankingOptions;
 module.exports.normalizePolicyInput = normalizePolicyInput;
+module.exports.extractOwnerEmails = extractOwnerEmails;

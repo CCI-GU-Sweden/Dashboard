@@ -5,7 +5,21 @@ const jwt = require('jsonwebtoken');
 
 const pool = require('../db');
 const omeroRouter = require('../routes/omero');
-const { buildFilesetQuery, buildRankingOptions, normalizePolicyInput } = omeroRouter;
+const {
+  buildFilesetQuery,
+  buildRankingOptions,
+  normalizePolicyInput,
+  extractOwnerEmails,
+} = omeroRouter;
+
+test('owner emails are extracted, deduplicated case-insensitively, and sorted', () => {
+  assert.deepEqual(extractOwnerEmails([
+    { username: 'Second.User@example.org' },
+    { username: 'Owner (first.user@example.org)' },
+    { username: 'second.user@EXAMPLE.org' },
+    { username: 'not-an-email' },
+  ]), ['first.user@example.org', 'Second.User@example.org']);
+});
 
 test('fileset query defaults to active filesets ordered by size', () => {
   const query = buildFilesetQuery({});
@@ -115,6 +129,64 @@ test('group ranking returns top-group metrics and comparison percentage', async 
     assert.equal(body.groups[0].free_gb, 5);
     assert.equal(body.groups[0].billable_fileset_count, 4);
     assert.equal(body.groups[0].daily_charge_sek, 0.75);
+  } finally {
+    pool.query = originalQuery;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('group email draft combines the latest snapshot, policy, and active owner emails', async () => {
+  const originalQuery = pool.query;
+  pool.query = async (sql, values) => {
+    assert.deepEqual(values, ['12']);
+    if (sql.includes('SELECT DISTINCT username')) {
+      assert.match(sql, /deleted_at IS NULL/);
+      return {
+        rows: [
+          { username: 'one@example.org' },
+          { username: 'Owner Two (two@example.org)' },
+          { username: 'not-an-email' },
+        ],
+      };
+    }
+
+    assert.match(sql, /MAX\(snapshot_date\)/);
+    assert.match(sql, /LEFT JOIN LATERAL/);
+    return {
+      rows: [{
+        group_id: '12',
+        group_name: 'Imaging Lab',
+        snapshot_date: '2026-09-24',
+        total_gb: '300.5',
+        billable_gb: '276.8',
+        daily_charge_sek: '3.3216',
+        policy_type: 'TEMPORARY',
+        grace_days: 28,
+        billing_grace_days: 2,
+        rate_ore_per_gb_day: '1.2',
+      }],
+    };
+  };
+
+  const app = express();
+  app.use('/api/omero', omeroRouter);
+  const server = app.listen(0);
+
+  try {
+    const token = jwt.sign({ access: true }, 'supersecret');
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/omero/groups/12/email-draft`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.recipients, ['one@example.org', 'two@example.org']);
+    assert.equal(body.billable_gb, 276.8);
+    assert.equal(body.daily_charge_sek, 3.3216);
+    assert.equal(body.policy.type, 'TEMPORARY');
+    assert.equal(body.policy.retention_days, 28);
+    assert.equal(body.policy.rate_ore_per_gb_day, 1.2);
   } finally {
     pool.query = originalQuery;
     await new Promise((resolve) => server.close(resolve));

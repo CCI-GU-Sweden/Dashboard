@@ -676,6 +676,46 @@ tr.details-open .policy-history-button i {
   width: min(100%, 340px);
 }
 
+.fileset-heading-actions,
+.email-field-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.fileset-heading-actions {
+  justify-content: flex-end;
+  flex: 1 1 500px;
+}
+
+.fileset-heading-actions .fileset-search {
+  flex: 1 1 260px;
+}
+
+.email-modal-card {
+  width: min(880px, calc(100vw - 2rem));
+}
+
+.email-field-heading {
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.email-field-heading .label {
+  margin-bottom: 0;
+}
+
+.email-recipients,
+.email-body {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.email-body {
+  min-height: 28rem;
+  line-height: 1.55;
+}
+
 .fileset-filters {
   margin-bottom: 1rem;
 }
