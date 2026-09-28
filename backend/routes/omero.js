@@ -5,10 +5,6 @@ const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
-const pendingEndpoints = [
-  '/collector-runs',
-];
-
 const FILESET_SORT_COLUMNS = {
   fileset_id: 'fileset_id',
   username: 'username',
@@ -266,6 +262,27 @@ function buildRankingOptions(query, comparisonValues) {
   };
 }
 
+function buildBillingOptions(query) {
+  if (!isIsoDate(query.startDate) || !isIsoDate(query.endDate)) return null;
+  if (query.startDate > query.endDate) return null;
+
+  const limitValue = String(query.limit ?? '10');
+  if (!['10', '25', '50', 'all'].includes(limitValue)) return null;
+
+  return {
+    limitClause: limitValue === 'all' ? '' : `LIMIT $3::int`,
+    queryValues: limitValue === 'all'
+      ? [query.startDate, query.endDate]
+      : [query.startDate, query.endDate, Number(limitValue)],
+  };
+}
+
+function buildCollectorRunsOptions(query) {
+  const limitValue = String(query.limit ?? '10');
+  if (!['10', '25', '50'].includes(limitValue)) return null;
+  return { limit: Number(limitValue) };
+}
+
 function percentageChange(current, previous) {
   if (previous === null || previous === undefined) return null;
   if (previous === 0) return current > 0 ? 100 : 0;
@@ -375,6 +392,87 @@ router.get('/groups', authMiddleware, async (req, res) => {
     })));
   } catch (error) {
     console.error('Failed to fetch OMERO groups:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/billing', authMiddleware, async (req, res) => {
+  const billing = buildBillingOptions(req.query);
+  if (!billing) {
+    return res.status(400).json({ error: 'Invalid billing date range or limit' });
+  }
+
+  try {
+    const result = await pool.query(`
+      SELECT
+        group_id,
+        (ARRAY_AGG(group_name ORDER BY snapshot_date DESC))[1] AS group_name,
+        STRING_AGG(DISTINCT policy_type, ', ' ORDER BY policy_type) AS policy_types,
+        COUNT(DISTINCT snapshot_date)::int AS snapshot_days,
+        SUM(billable_bytes)::numeric / 1000000000::numeric AS billable_gb_days,
+        SUM(daily_charge_ore)::numeric / 100::numeric AS total_sek
+      FROM public.group_storage_snapshot
+      WHERE snapshot_date BETWEEN $1::date AND $2::date
+      GROUP BY group_id
+      ORDER BY total_sek DESC, group_name, group_id
+      ${billing.limitClause}
+    `, billing.queryValues);
+
+    return res.json({
+      period: { from: req.query.startDate, to: req.query.endDate, inclusive: true },
+      groups: result.rows.map((row) => ({
+        group_id: String(row.group_id),
+        group_name: row.group_name,
+        policy_types: row.policy_types,
+        snapshot_days: Number(row.snapshot_days) || 0,
+        billable_gb_days: Number(row.billable_gb_days) || 0,
+        total_sek: Number(row.total_sek) || 0,
+      })),
+    });
+  } catch (error) {
+    console.error('Failed to calculate OMERO billing:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/collector-runs', authMiddleware, async (req, res) => {
+  const options = buildCollectorRunsOptions(req.query);
+  if (!options) return res.status(400).json({ error: 'Limit must be 10, 25, or 50' });
+
+  try {
+    const result = await pool.query(`
+      SELECT
+        run_id,
+        started_at,
+        finished_at,
+        status,
+        filesets_seen,
+        total_bytes_seen,
+        filesets_inserted,
+        filesets_updated,
+        filesets_marked_deleted,
+        snapshots_written,
+        deletion_suppressed,
+        error_message
+      FROM public.collector_run
+      ORDER BY started_at DESC, run_id DESC
+      LIMIT $1::int
+    `, [options.limit]);
+
+    return res.json({
+      runs: result.rows.map((row) => ({
+        ...row,
+        run_id: String(row.run_id),
+        filesets_seen: Number(row.filesets_seen) || 0,
+        total_bytes_seen: Number(row.total_bytes_seen) || 0,
+        filesets_inserted: Number(row.filesets_inserted) || 0,
+        filesets_updated: Number(row.filesets_updated) || 0,
+        filesets_marked_deleted: Number(row.filesets_marked_deleted) || 0,
+        snapshots_written: Number(row.snapshots_written) || 0,
+      })),
+    });
+  } catch (error) {
+    console.error('Failed to fetch collector runs:', error.message);
     return res.status(500).json({ error: error.message });
   }
 });
@@ -841,14 +939,10 @@ router.get('/summary', authMiddleware, async (req, res) => {
   }
 });
 
-pendingEndpoints.forEach((endpoint) => {
-  router.get(endpoint, authMiddleware, (req, res) => {
-    res.status(501).json({ error: 'OMERO endpoint not implemented yet' });
-  });
-});
-
 module.exports = router;
 module.exports.buildFilesetQuery = buildFilesetQuery;
 module.exports.buildRankingOptions = buildRankingOptions;
+module.exports.buildBillingOptions = buildBillingOptions;
+module.exports.buildCollectorRunsOptions = buildCollectorRunsOptions;
 module.exports.normalizePolicyInput = normalizePolicyInput;
 module.exports.extractOwnerEmails = extractOwnerEmails;

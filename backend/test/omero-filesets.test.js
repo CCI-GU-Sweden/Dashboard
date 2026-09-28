@@ -8,6 +8,8 @@ const omeroRouter = require('../routes/omero');
 const {
   buildFilesetQuery,
   buildRankingOptions,
+  buildBillingOptions,
+  buildCollectorRunsOptions,
   normalizePolicyInput,
   extractOwnerEmails,
 } = omeroRouter;
@@ -86,6 +88,119 @@ test('group ranking validates its limit and policy filters', () => {
   assert.equal(filtered.limitPlaceholder, '$3::int');
   assert.equal(buildRankingOptions({ limit: '100' }, [30]), null);
   assert.equal(buildRankingOptions({ policy_type: 'INVALID' }, [30]), null);
+});
+
+test('billing validates an inclusive date range and export limit', () => {
+  assert.deepEqual(buildBillingOptions({
+    startDate: '2026-09-01',
+    endDate: '2026-09-30',
+    limit: '25',
+  }), {
+    limitClause: 'LIMIT $3::int',
+    queryValues: ['2026-09-01', '2026-09-30', 25],
+  });
+  assert.equal(buildBillingOptions({
+    startDate: '2026-10-01',
+    endDate: '2026-09-30',
+  }), null);
+  assert.equal(buildBillingOptions({
+    startDate: '2026-09-01',
+    endDate: '2026-09-30',
+    limit: '100',
+  }), null);
+  assert.equal(buildBillingOptions({
+    startDate: '2026-09-01',
+    endDate: '2026-09-30',
+    limit: 'all',
+  }).limitClause, '');
+});
+
+test('collector health only accepts supported row limits', () => {
+  assert.deepEqual(buildCollectorRunsOptions({}), { limit: 10 });
+  assert.deepEqual(buildCollectorRunsOptions({ limit: '50' }), { limit: 50 });
+  assert.equal(buildCollectorRunsOptions({ limit: '500' }), null);
+});
+
+test('billing sums stored daily charges over both boundary dates', async () => {
+  const originalQuery = pool.query;
+  pool.query = async (sql, values) => {
+    assert.match(sql, /snapshot_date BETWEEN \$1::date AND \$2::date/);
+    assert.match(sql, /SUM\(daily_charge_ore\)::numeric \/ 100::numeric AS total_sek/);
+    assert.match(sql, /ORDER BY total_sek DESC/);
+    assert.deepEqual(values, ['2026-09-01', '2026-09-30', 10]);
+    return { rows: [{
+      group_id: '12',
+      group_name: 'Small group',
+      policy_types: 'AGREEMENT',
+      snapshot_days: '30',
+      billable_gb_days: '6',
+      total_sek: '0.06',
+    }] };
+  };
+
+  const app = express();
+  app.use('/api/omero', omeroRouter);
+  const server = app.listen(0);
+
+  try {
+    const token = jwt.sign({ access: true }, 'supersecret');
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/omero/billing?startDate=2026-09-01&endDate=2026-09-30`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.period, {
+      from: '2026-09-01', to: '2026-09-30', inclusive: true,
+    });
+    assert.equal(body.groups[0].total_sek, 0.06);
+    assert.equal(body.groups[0].billable_gb_days, 6);
+  } finally {
+    pool.query = originalQuery;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('collector health returns the requested latest runs', async () => {
+  const originalQuery = pool.query;
+  pool.query = async (sql, values) => {
+    assert.match(sql, /FROM public\.collector_run/);
+    assert.match(sql, /ORDER BY started_at DESC, run_id DESC/);
+    assert.deepEqual(values, [25]);
+    return { rows: [{
+      run_id: '9',
+      started_at: '2026-09-28T01:00:00.000Z',
+      finished_at: '2026-09-28T01:01:00.000Z',
+      status: 'SUCCESS',
+      filesets_seen: '20',
+      total_bytes_seen: '200000000',
+      filesets_inserted: '1',
+      filesets_updated: '2',
+      filesets_marked_deleted: '0',
+      snapshots_written: '3',
+      deletion_suppressed: false,
+      error_message: null,
+    }] };
+  };
+
+  const app = express();
+  app.use('/api/omero', omeroRouter);
+  const server = app.listen(0);
+
+  try {
+    const token = jwt.sign({ access: true }, 'supersecret');
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/omero/collector-runs?limit=25`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.runs[0].run_id, '9');
+    assert.equal(body.runs[0].filesets_seen, 20);
+  } finally {
+    pool.query = originalQuery;
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test('group history keeps collector dates after all group data is deleted', async () => {

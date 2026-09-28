@@ -339,6 +339,8 @@
         <ul>
           <li class="is-active"><button id="filesetInventoryTab" type="button" role="tab" aria-selected="true" aria-controls="filesetInventoryPanel">Fileset inventory</button></li>
           <li><button id="storagePoliciesTab" type="button" role="tab" aria-selected="false" aria-controls="storagePoliciesPanel">Storage policies</button></li>
+          <li><button id="billingTab" type="button" role="tab" aria-selected="false" aria-controls="billingPanel">Billing</button></li>
+          <li><button id="healthTab" type="button" role="tab" aria-selected="false" aria-controls="healthPanel">Health</button></li>
         </ul>
       </div>
 
@@ -407,6 +409,70 @@
         <div class="fileset-table-wrap">
           <table id="policyTable" class="display" style="width:100%">
             <thead><tr><th>History</th><th>Group name</th><th>Policy type</th><th>Retention</th><th>Billing grace</th><th>Rate</th><th>From</th><th>Until</th><th>Notes</th><th>Edit</th></tr></thead>
+          </table>
+        </div>
+      </section>
+
+      <section class="fileset-panel" id="billingPanel" role="tabpanel" aria-labelledby="billingTab" hidden>
+        <div class="fileset-heading billing-heading">
+          <div>
+            <p class="eyebrow">Inclusive period billing</p>
+            <h2 class="title is-5">Bill by group</h2>
+          </div>
+          <div class="billing-controls" aria-label="Billing period and display controls">
+            <label class="field">
+              <span class="label">From</span>
+              <input class="input" id="billingStartDate" type="date">
+            </label>
+            <label class="field">
+              <span class="label">To</span>
+              <input class="input" id="billingEndDate" type="date">
+            </label>
+            <label class="field">
+              <span class="label">Show</span>
+              <span class="select">
+                <select id="billingLimit">
+                  <option value="10" selected>Top 10</option>
+                  <option value="25">Top 25</option>
+                  <option value="50">Top 50</option>
+                </select>
+              </span>
+            </label>
+            <button class="button is-link" id="exportBillingCsv" type="button">
+              <span class="icon"><i class="fas fa-file-csv" aria-hidden="true"></i></span>
+              <span>Export CSV</span>
+            </button>
+          </div>
+        </div>
+        <p class="billing-note">Both boundary dates are included. Calculated from recorded daily charges; no minimum invoice threshold is applied.</p>
+        <p class="notification is-danger is-light chart-error" id="billingError" hidden></p>
+        <div id="billingChart" role="img" aria-label="Group bills sorted from highest to lowest"></div>
+      </section>
+
+      <section class="fileset-panel" id="healthPanel" role="tabpanel" aria-labelledby="healthTab" hidden>
+        <div class="fileset-heading">
+          <div>
+            <p class="eyebrow">Collector audit</p>
+            <h2 class="title is-5">Collector health</h2>
+          </div>
+          <label class="field health-limit">
+            <span class="label">Show</span>
+            <span class="select">
+              <select id="healthLimit">
+                <option value="10" selected>Last 10 runs</option>
+                <option value="25">Last 25 runs</option>
+                <option value="50">Last 50 runs</option>
+              </select>
+            </span>
+          </label>
+        </div>
+        <p class="notification is-danger is-light chart-error" id="healthError" hidden></p>
+        <div class="fileset-table-wrap">
+          <table class="health-table">
+            <thead>
+              <tr><th>Status</th><th>Started</th><th>Duration</th><th>Filesets seen</th><th>Changes</th><th>Snapshots</th><th>Notes</th></tr>
+            </thead>
+            <tbody id="healthTableBody"></tbody>
           </table>
         </div>
       </section>

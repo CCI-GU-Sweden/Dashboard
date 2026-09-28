@@ -638,6 +638,106 @@ tr.details-open .policy-history-button i {
   color: var(--muted);
 }
 
+.billing-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.billing-controls .field,
+.health-limit {
+  margin-bottom: 0;
+}
+
+.billing-controls .label,
+.health-limit .label {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.billing-note {
+  margin: -0.35rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+#billingChart {
+  width: 100%;
+  min-height: 380px;
+}
+
+#billingChart.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.health-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.health-table th,
+.health-table td {
+  padding: 0.75rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+
+.health-table th {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.health-table td {
+  font-size: 0.86rem;
+}
+
+.health-table td:last-child {
+  min-width: 220px;
+  white-space: normal;
+}
+
+.health-status {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.health-status.is-success {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.health-status.is-running {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.health-status.is-partial {
+  color: #9a3412;
+  background: #ffedd5;
+}
+
+.health-status.is-failed {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.health-empty {
+  padding: 2rem !important;
+  color: var(--muted);
+  text-align: center !important;
+}
+
 .group-ranking-hint {
   margin-top: 0.5rem;
   text-align: right;

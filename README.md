@@ -22,19 +22,20 @@ The backend is split into database, authentication middleware, and route modules
 - `/api/omero/history` returns total and billable daily storage from `group_storage_snapshot`, in either decimal GB or öre per day. Group histories include zero-valued points on later collector dates when a group no longer has stored data, so deleted data does not leave a stale-looking final value.
 - `/api/omero/groups` returns the OMERO groups available in the snapshot history.
 - `/api/omero/groups/ranking` returns the top 10, 25, or 50 groups by current billable storage. It can filter the current snapshot by policy type and includes billable/free storage, change from the selected comparison period, billable fileset count, and daily charge.
+- `/api/omero/billing` sums the stored daily charge for every group over an inclusive `startDate` / `endDate` range. Results are sorted by bill descending and support top 10, 25, 50, or all rows for CSV export. Fractional GB and fractional SEK are retained, and no minimum invoice threshold is imposed.
+- `/api/omero/collector-runs` returns the latest 10, 25, or 50 collector audit records, including status, duration inputs, inventory/change counts, deletion suppression, and errors.
 - `/api/omero/summary` returns seven latest-snapshot metrics and their changes from the selected comparison date.
 - `/api/omero/filesets` returns a searchable, filterable, sortable page of `public.omero_fileset` rows. It accepts `search`, `group_id`, `status`, `imported`, `size`, `billing`, `page`, `pageSize`, `sort`, and `order` query parameters. `billing` supports policy-derived `billable` and `overdue` filters.
 - `/api/omero/filesets/:filesetId` returns expandable detail metadata: OMERO project/dataset locations, first and last collection sightings, uncontained-image and missing-run counts, and source filenames. Stored source `client_path` values are intentionally excluded.
 - `GET /api/omero/policies` returns effective-dated storage-policy history. `POST /api/omero/policies` schedules a policy change, inserts its new history row, and closes the preceding period in one transaction.
-- `/api/omero/collector-runs` remains an authenticated placeholder and currently returns `501 Not Implemented`.
 
 The frontend opens on an overview of Uploads, OMERO Storage, and Compute. Each card opens its own mutually exclusive dashboard view while keeping the shared university header and login control visible. Upload details are loaded only when the Uploads view is opened, and authentication is retained in the current browser tab.
 
 The OMERO Storage view graphs the daily total and billable series. In storage mode, values use decimal GB (`1 GB = 1,000,000,000 bytes`) to match collector billing. In öre mode, Total is the daily charge if all stored bytes were billable at each snapshot's applied rate, while Billable uses the stored `daily_charge_ore` value.
 
-The fileset table has expandable details for its current OMERO project/dataset locations plus collector timestamps. Only explicitly allow-listed OMERO metadata is returned; source `client_path` values and server filesystem paths are not exposed.
+The OMERO data area includes fileset inventory, storage policies, billing, and collector health tabs. Billing provides an inclusive date range, a descending horizontal top-10/25/50 chart, and an all-groups CSV download. The fileset table has expandable details for its current OMERO project/dataset locations plus collector timestamps. Only explicitly allow-listed OMERO metadata is returned; source `client_path` values and server filesystem paths are not exposed.
 
-The dashboard reads these tables through its existing statistics-database `PG*` connection. That PostgreSQL role needs `SELECT` on `public.group_storage_snapshot` and `public.omero_fileset`, plus `SELECT`, `INSERT`, and `UPDATE` on `public.storage_policy` and sequence usage for `storage_policy_policy_id_seq`. Do not use `omero-stats-reader-secret` here: that credential reads the source OMERO database, while these tables belong to `omerofilestats`.
+The dashboard reads these tables through its existing statistics-database `PG*` connection. That PostgreSQL role needs `SELECT` on `public.group_storage_snapshot`, `public.omero_fileset`, and `public.collector_run`, plus `SELECT`, `INSERT`, and `UPDATE` on `public.storage_policy` and sequence usage for `storage_policy_policy_id_seq`. Do not use `omero-stats-reader-secret` here: that credential reads the source OMERO database, while these tables belong to `omerofilestats`.
 
 ## Security
 

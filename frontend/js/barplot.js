@@ -3,6 +3,8 @@ let omeroChartInstance = null;
 let filesetTableInstance = null;
 let policyTableInstance = null;
 let policiesLoaded = false;
+let billingLoaded = false;
+let healthLoaded = false;
 const filesetDetailsCache = new Map();
 let apiToken = sessionStorage.getItem('dashboardToken') || '';
 let scopesLoaded = false;
@@ -958,21 +960,248 @@ function closePolicyModal() {
 }
 
 function activateOmeroDataTab(tab) {
-  const showPolicies = tab === 'policies';
-  document.getElementById('filesetInventoryPanel').hidden = showPolicies;
-  document.getElementById('storagePoliciesPanel').hidden = !showPolicies;
-  const filesetTab = document.getElementById('filesetInventoryTab');
-  const policiesTab = document.getElementById('storagePoliciesTab');
-  filesetTab.parentElement.classList.toggle('is-active', !showPolicies);
-  policiesTab.parentElement.classList.toggle('is-active', showPolicies);
-  filesetTab.setAttribute('aria-selected', String(!showPolicies));
-  policiesTab.setAttribute('aria-selected', String(showPolicies));
+  const tabs = {
+    filesets: ['filesetInventoryTab', 'filesetInventoryPanel'],
+    policies: ['storagePoliciesTab', 'storagePoliciesPanel'],
+    billing: ['billingTab', 'billingPanel'],
+    health: ['healthTab', 'healthPanel'],
+  };
 
-  if (showPolicies) {
+  Object.entries(tabs).forEach(([name, [tabId, panelId]]) => {
+    const active = name === tab;
+    const tabElement = document.getElementById(tabId);
+    document.getElementById(panelId).hidden = !active;
+    tabElement.parentElement.classList.toggle('is-active', active);
+    tabElement.setAttribute('aria-selected', String(active));
+  });
+
+  if (tab === 'policies') {
     if (!policiesLoaded) loadPolicies();
     else policyTableInstance?.columns.adjust();
+  } else if (tab === 'billing') {
+    if (!billingLoaded) fetchAndRenderBilling();
+    else window.dispatchEvent(new Event('resize'));
+  } else if (tab === 'health') {
+    if (!healthLoaded) fetchAndRenderHealth();
   } else {
     filesetTableInstance?.columns.adjust();
+  }
+}
+
+function getBillingDates() {
+  return {
+    startDate: document.getElementById('billingStartDate').value,
+    endDate: document.getElementById('billingEndDate').value,
+  };
+}
+
+function renderBilling(data) {
+  const chart = document.getElementById('billingChart');
+  const groups = data.groups || [];
+  if (!groups.length) {
+    Plotly.purge(chart);
+    chart.textContent = 'No billable group activity was recorded in this period.';
+    chart.classList.add('is-empty');
+    return;
+  }
+
+  if (chart.classList.contains('is-empty')) chart.textContent = '';
+  chart.classList.remove('is-empty');
+  const groupKeys = groups.map((group) => `billing-group-${group.group_id}`);
+  const colors = groups.map((_, index) => `hsl(${212 + ((index * 17) % 115)} 70% ${46 + ((index % 3) * 7)}%)`);
+  const values = groups.map((group) => Number(group.total_sek));
+  const maxValue = Math.max(...values, 0);
+
+  Plotly.react(chart, [{
+    type: 'bar',
+    orientation: 'h',
+    x: values,
+    y: groupKeys,
+    marker: { color: colors, line: { color: '#ffffff', width: 0.5 } },
+    customdata: groups.map((group) => [
+      group.group_name,
+      group.policy_types,
+      group.snapshot_days,
+      group.billable_gb_days,
+    ]),
+    hovertemplate: [
+      '<b>%{customdata[0]}</b>',
+      '<br>Bill: %{x:,.4f} SEK',
+      '<br>Billable storage-days: %{customdata[3]:,.4f} GB-days',
+      '<br>Snapshot days: %{customdata[2]}',
+      '<br>Policies: %{customdata[1]}',
+      '<extra></extra>',
+    ].join(''),
+  }], {
+    height: Math.max(380, groups.length * 32 + 110),
+    margin: { l: 180, r: 90, t: 25, b: 60 },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    font: { family: 'inherit', color: '#24324a' },
+    bargap: 0.28,
+    annotations: groups.map((group, index) => ({
+      x: values[index],
+      y: groupKeys[index],
+      xshift: 8,
+      xanchor: 'left',
+      text: `${formatNumber(group.total_sek, 4)} SEK`,
+      showarrow: false,
+      font: { color: '#475569', size: 11 },
+    })),
+    xaxis: {
+      title: 'Bill (SEK)',
+      rangemode: 'tozero',
+      range: [0, maxValue > 0 ? maxValue * 1.25 : 1],
+      gridcolor: '#e2e8f0',
+      zeroline: false,
+    },
+    yaxis: {
+      type: 'category',
+      categoryorder: 'array',
+      categoryarray: groupKeys,
+      tickmode: 'array',
+      tickvals: groupKeys,
+      ticktext: groups.map((group) => group.group_name),
+      autorange: 'reversed',
+      automargin: true,
+    },
+  }, { responsive: true, displayModeBar: false });
+}
+
+async function fetchBilling(limit = document.getElementById('billingLimit').value) {
+  const dates = getBillingDates();
+  if (!dates.startDate || !dates.endDate) throw new Error('Select both billing dates.');
+  if (dates.startDate > dates.endDate) throw new Error('The From date must be before or equal to the To date.');
+  const params = new URLSearchParams({
+    startDate: dates.startDate,
+    endDate: dates.endDate,
+    limit,
+  });
+  return fetchJson(`/api/omero/billing?${params}`);
+}
+
+async function fetchAndRenderBilling() {
+  const errorElement = document.getElementById('billingError');
+  errorElement.hidden = true;
+  try {
+    renderBilling(await fetchBilling());
+    billingLoaded = true;
+  } catch (error) {
+    errorElement.textContent = error.message;
+    errorElement.hidden = false;
+  }
+}
+
+function csvCell(value) {
+  const text = String(value ?? '');
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+async function exportBillingCsv() {
+  const button = document.getElementById('exportBillingCsv');
+  const errorElement = document.getElementById('billingError');
+  button.disabled = true;
+  button.classList.add('is-loading');
+  errorElement.hidden = true;
+
+  try {
+    const data = await fetchBilling('all');
+    const columns = [
+      ['From (inclusive)', 'period_from'],
+      ['To (inclusive)', 'period_to'],
+      ['Group ID', 'group_id'],
+      ['Group name', 'group_name'],
+      ['Policy types', 'policy_types'],
+      ['Snapshot days', 'snapshot_days'],
+      ['Billable GB-days', 'billable_gb_days'],
+      ['Bill (SEK)', 'total_sek'],
+    ];
+    const lines = [
+      columns.map(([heading]) => csvCell(heading)).join(','),
+      ...data.groups.map((group) => {
+        const row = {
+          ...group,
+          period_from: data.period.from,
+          period_to: data.period.to,
+        };
+        return columns.map(([, key]) => csvCell(row[key])).join(',');
+      }),
+    ];
+    const blob = new Blob([`\uFEFF${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `omero-billing-${data.period.from}-to-${data.period.to}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  } catch (error) {
+    errorElement.textContent = error.message;
+    errorElement.hidden = false;
+  } finally {
+    button.disabled = false;
+    button.classList.remove('is-loading');
+  }
+}
+
+function formatDuration(startedAt, finishedAt) {
+  if (!finishedAt) return 'In progress';
+  const seconds = Math.max(0, Math.round((new Date(finishedAt) - new Date(startedAt)) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${seconds % 60}s`;
+}
+
+function renderHealth(runs) {
+  const body = document.getElementById('healthTableBody');
+  body.replaceChildren();
+
+  if (!runs.length) {
+    const row = body.insertRow();
+    const cell = row.insertCell();
+    cell.colSpan = 7;
+    cell.className = 'health-empty';
+    cell.textContent = 'No collector runs are available.';
+    return;
+  }
+
+  runs.forEach((run) => {
+    const row = body.insertRow();
+    const statusCell = row.insertCell();
+    const badge = document.createElement('span');
+    badge.className = `health-status is-${String(run.status).toLowerCase()}`;
+    badge.textContent = run.status;
+    statusCell.appendChild(badge);
+
+    const notes = [];
+    if (run.deletion_suppressed) notes.push('Deletion suppressed');
+    if (run.error_message) notes.push(run.error_message);
+    [
+      new Date(run.started_at).toLocaleString(),
+      formatDuration(run.started_at, run.finished_at),
+      formatNumber(run.filesets_seen, 0),
+      `+${formatNumber(run.filesets_inserted, 0)} / ~${formatNumber(run.filesets_updated, 0)} / −${formatNumber(run.filesets_marked_deleted, 0)}`,
+      formatNumber(run.snapshots_written, 0),
+      notes.join(' · ') || '—',
+    ].forEach((value) => {
+      const cell = row.insertCell();
+      cell.textContent = value;
+    });
+  });
+}
+
+async function fetchAndRenderHealth() {
+  const errorElement = document.getElementById('healthError');
+  const limit = document.getElementById('healthLimit').value;
+  errorElement.hidden = true;
+  try {
+    const data = await fetchJson(`/api/omero/collector-runs?limit=${limit}`);
+    renderHealth(data.runs || []);
+    healthLoaded = true;
+  } catch (error) {
+    errorElement.textContent = error.message;
+    errorElement.hidden = false;
   }
 }
 
@@ -1389,6 +1618,17 @@ document.getElementById('filesetInventoryTab').addEventListener('click', () => {
 document.getElementById('storagePoliciesTab').addEventListener('click', () => {
   activateOmeroDataTab('policies');
 });
+document.getElementById('billingTab').addEventListener('click', () => {
+  activateOmeroDataTab('billing');
+});
+document.getElementById('healthTab').addEventListener('click', () => {
+  activateOmeroDataTab('health');
+});
+document.getElementById('billingStartDate').addEventListener('change', fetchAndRenderBilling);
+document.getElementById('billingEndDate').addEventListener('change', fetchAndRenderBilling);
+document.getElementById('billingLimit').addEventListener('change', fetchAndRenderBilling);
+document.getElementById('exportBillingCsv').addEventListener('click', exportBillingCsv);
+document.getElementById('healthLimit').addEventListener('change', fetchAndRenderHealth);
 
 document.getElementById('generateEmailButton').addEventListener('click', openEmailModal);
 document.getElementById('closeEmailModal').addEventListener('click', closeEmailModal);
@@ -1460,6 +1700,11 @@ document.getElementById('resetFilesetFilters').addEventListener('click', resetFi
 
 updateCustomDateVisibility();
 updateOmeroCustomDateVisibility();
+const billingEndDate = stockholmToday();
+const billingStartDate = new Date(`${billingEndDate}T12:00:00Z`);
+billingStartDate.setUTCDate(billingStartDate.getUTCDate() - 29);
+document.getElementById('billingStartDate').value = billingStartDate.toISOString().slice(0, 10);
+document.getElementById('billingEndDate').value = billingEndDate;
 setAuthenticatedState(Boolean(apiToken));
 updateGenerateEmailButton();
 
