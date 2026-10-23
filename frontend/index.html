@@ -13,6 +13,7 @@
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="/vendor/datatables/dataTables.min.js"></script>
   <script src="/vendor/plotly/plotly.min.js"></script>
+  <script src="/js/tickets.js" defer></script>
   <script src="/js/barplot.js" defer></script>
 </head>
 <body>
@@ -92,6 +93,19 @@
               </span>
             </div>
           </div>
+          <div class="card-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
+        </article>
+
+        <article class="summary-card summary-card-active" id="ticketsCard" role="button" tabindex="0" aria-label="Open Tickets dashboard">
+          <div class="card-heading"><span class="card-icon tickets-icon" aria-hidden="true">🎫</span></div>
+          <div><p class="eyebrow">Facility support</p><h2 class="title is-4">Tickets</h2></div>
+          <div class="summary-metrics">
+            <div><span>Total tickets</span><span class="summary-value"><strong id="overviewTicketsTotal">—</strong><small id="overviewTicketsTotalChange">—</small></span></div>
+            <div><span>Active tickets</span><span class="summary-value"><strong id="overviewTicketsActive">—</strong><small id="overviewTicketsActiveChange">—</small></span></div>
+            <div><span>Resolved · last 30 days</span><span class="summary-value"><strong id="overviewTicketsResolved">—</strong><small id="overviewTicketsResolvedChange">—</small></span></div>
+          </div>
+          <p class="ticket-card-note">Rolling 30-day comparison</p>
+          <p id="overviewTicketsError" class="help is-danger" role="status" hidden></p>
           <div class="card-link">Details <i class="fas fa-arrow-right" aria-hidden="true"></i></div>
         </article>
 
@@ -478,6 +492,59 @@
       </section>
     </section>
 
+    <section class="app-view tickets-view" id="ticketsView" hidden>
+      <div class="detail-toolbar">
+        <button class="button is-light dashboard-back" type="button"><span class="icon"><i class="fas fa-arrow-left" aria-hidden="true"></i></span><span>Overview</span></button>
+        <div class="detail-title"><p class="eyebrow">Overview / Tickets</p><h1 class="title is-4">🎫 Tickets</h1></div>
+        <div class="buttons"><button class="button is-light" id="refreshTickets" type="button">Refresh</button><button class="button is-link" id="addTicket" type="button">Add ticket</button></div>
+      </div>
+      <div class="ticket-metrics" aria-label="Ticket statistics">
+        <div class="metric-card"><p>Total tickets</p><strong id="ticketsTotal">—</strong><small id="ticketsTotalChange">—</small></div>
+        <div class="metric-card"><p>Active tickets</p><strong id="ticketsActive">—</strong><small id="ticketsActiveChange">—</small></div>
+        <div class="metric-card"><p>Resolved · last 30 days</p><strong id="ticketsResolved">—</strong><small id="ticketsResolvedChange">—</small></div>
+      </div>
+      <p class="ticket-help">Active includes Open, In progress, and Waiting. Resolved counts distinct tickets resolved during the last 30 days, including tickets subsequently reopened.</p>
+      <p class="notification is-danger is-light" id="ticketSummaryError" hidden></p>
+      <section class="fileset-panel ticket-panel" aria-label="Ticket inventory">
+        <form id="ticketFilters" autocomplete="off">
+          <div class="ticket-filter-grid">
+            <label>Search<input class="input" type="search" id="ticketSearch" maxlength="200" placeholder="Name, microscope, message, or ID"></label>
+            <label>Reporter<input class="input" type="search" id="ticketReporter" maxlength="200" placeholder="Name contains…"></label>
+            <label>Message contains<input class="input" type="search" id="ticketMessageSearch" maxlength="200" placeholder="Part of the original message"></label>
+            <label>Status<select class="input" id="ticketStatusFilter" multiple size="3"></select></label>
+            <div><label for="ticketMicroscopeFilter">Microscope</label><select class="input" id="ticketMicroscopeFilter" multiple size="3"></select><label class="checkbox"><input id="ticketFacilityWide" type="checkbox"> Facility-wide</label></div>
+          </div>
+          <div class="ticket-date-filters">
+            <label>Date field<select class="input" id="ticketDateField"><option value="opened_at">Opened</option><option value="resolved_at">Resolved</option><option value="updated_at">Last updated</option></select></label>
+            <label>Period<select class="input" id="ticketDatePreset"><option value="all">All dates</option><option value="today">Today</option><option value="7">Last 7 calendar days</option><option value="30">Last 30 calendar days</option><option value="custom">Custom</option></select></label>
+            <label>From<input class="input" id="ticketStartDate" type="date"></label>
+            <label>Through<input class="input" id="ticketEndDate" type="date"></label>
+            <button class="button is-light" id="resetTicketFilters" type="button">Reset filters</button>
+          </div>
+          <details id="ticketMoreFilters"><summary>More filters <span id="ticketMoreFilterCount"></span></summary>
+            <div class="ticket-filter-grid ticket-extra-filters">
+              <div><label for="ticketIssueFilter">Issue type</label><select class="input" id="ticketIssueFilter" multiple size="3"></select><label class="checkbox"><input id="ticketUnspecifiedIssue" type="checkbox"> Not specified</label></div>
+              <label>Ticket type<select class="input" id="ticketTypeFilter" multiple size="3"></select></label>
+              <label>Priority<select class="input" id="ticketPriorityFilter" multiple size="3"></select></label>
+              <label>Source<select class="input" id="ticketSourceFilter"><option value="all">All sources</option><option value="CONTACT_FORM">Contact form</option><option value="DASHBOARD">Dashboard</option></select></label>
+              <label>Chat state<select class="input" id="ticketChatFilter"><option value="all">All chat states</option><option value="NOT_REQUESTED">Not requested</option><option value="PENDING">Pending</option><option value="OPEN">Open</option><option value="FAILED">Failed</option></select></label>
+              <div><label for="ticketAssignedFilter">Assigned staff</label><input class="input" id="ticketAssignedFilter" type="search" maxlength="200"><label class="checkbox"><input id="ticketUnassigned" type="checkbox"> Unassigned only</label></div>
+            </div>
+          </details>
+          <div class="ticket-sort-row">
+            <p class="ticket-help" id="ticketFilterSummary">Active tickets · all microscopes · Europe/Stockholm time. Multiple selections use OR; different filters use AND.</p>
+            <label>Sort<select class="input" id="ticketSort"><option value="opened_at">Opened</option><option value="priority">Priority</option><option value="updated_at">Updated</option><option value="resolved_at">Resolved</option><option value="reporter_name">Reporter</option><option value="microscope">Microscope</option><option value="status">Status</option><option value="issue_type">Issue type</option></select></label>
+            <label>Order<select class="input" id="ticketOrder"><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
+          </div>
+          <p class="ticket-help">Use Ctrl/Cmd to select several options; no selection means all. Dates use Europe/Stockholm time.</p>
+        </form>
+        <p id="ticketNotice" class="notification is-success is-light" role="status" hidden></p>
+        <p id="ticketTableError" class="notification is-danger is-light" role="alert" hidden></p>
+        <div class="fileset-table-wrap"><table id="ticketTable" class="display" style="width:100%"><thead><tr><th>Details</th><th>ID</th><th>Opened</th><th>Reporter</th><th>Microscope</th><th>Message</th><th>Type / priority</th><th>Issue type</th><th>Status</th><th>Assigned</th><th>Resolved</th><th>Images</th><th>Actions</th></tr></thead></table></div>
+      </section>
+      <datalist id="ticketMicroscopeOptions"></datalist>
+    </section>
+
     <section class="app-view future-view" id="computeView" hidden>
       <div class="detail-toolbar">
         <button class="button is-light dashboard-back" type="button">
@@ -497,6 +564,61 @@
       </div>
     </section>
   </main>
+
+  <dialog id="ticketCreateDialog" class="ticket-dialog" aria-labelledby="ticketCreateTitle">
+    <form id="ticketCreateForm">
+      <header><h2 class="title is-4" id="ticketCreateTitle">Add ticket</h2><button class="delete" type="button" data-close-ticket-dialog aria-label="Close"></button></header>
+      <div class="ticket-dialog-body">
+        <div class="ticket-form-grid">
+          <label>Reporter name<input class="input" name="reporter_name" maxlength="200" required></label>
+          <label>Reporter identifier (optional)<input class="input" name="reporter_identifier" maxlength="254" placeholder="Email or user ID"></label>
+          <label>Microscope<input class="input" name="microscope" list="ticketMicroscopeOptions" maxlength="150" placeholder="Leave blank for facility-wide"></label>
+          <label>Ticket type<select class="input" name="ticket_type" id="ticketCreateType"></select></label>
+          <label>Issue type (optional)<select class="input" name="issue_type" id="ticketCreateIssue"></select></label>
+          <label>Priority<select class="input" name="priority" id="ticketCreatePriority"></select></label>
+          <label>Assigned staff (optional)<input class="input" name="assigned_to" maxlength="200"></label>
+          <label>Your staff name<input class="input ticket-actor" name="actor_name" maxlength="180" required autocomplete="name"></label>
+        </div>
+        <label>Original message<textarea class="textarea" name="message" rows="5" maxlength="20000" required></textarea></label>
+        <label>Images (optional)<input class="input" type="file" name="images" accept="image/png,image/jpeg" multiple></label>
+        <p class="ticket-help">Up to five PNG/JPEG images, 5 MiB each, maximum 20 megapixels. Your staff name is self-reported with the shared login.</p>
+        <p class="notification is-danger is-light" id="ticketCreateError" role="alert" hidden></p>
+      </div>
+      <footer><button class="button" type="button" data-close-ticket-dialog>Close draft</button><button class="button is-link" type="submit">Create ticket</button></footer>
+    </form>
+  </dialog>
+  <dialog id="ticketEditDialog" class="ticket-dialog" aria-labelledby="ticketEditTitle">
+    <form id="ticketEditForm">
+      <header><h2 class="title is-4" id="ticketEditTitle">Update ticket</h2><button class="delete" type="button" data-close-ticket-dialog aria-label="Close"></button></header>
+      <div class="ticket-dialog-body">
+        <p class="ticket-help" id="ticketEditContext"></p>
+        <div class="ticket-form-grid">
+          <label>Status<select class="input" name="status" id="ticketEditStatus"></select></label>
+          <label>Priority<select class="input" name="priority" id="ticketEditPriority"></select></label>
+          <label>Issue type (optional)<select class="input" name="issue_type" id="ticketEditIssue"></select></label>
+          <label>Assigned staff<input class="input" name="assigned_to" maxlength="200"></label>
+          <label>Your staff name<input class="input ticket-actor" name="actor_name" maxlength="180" required autocomplete="name"></label>
+        </div>
+        <label id="ticketClosingField" hidden>Resolution / closing note (optional)<textarea class="textarea" name="resolution_note" maxlength="2000" rows="3" placeholder="What was fixed, a workaround, or why this is being closed"></textarea><small id="ticketClosingCount">0 / 2,000</small></label>
+        <label id="ticketReopenField" hidden>Reason for reopening<textarea class="textarea" name="change_note" maxlength="2000" rows="3"></textarea></label>
+        <p class="notification is-danger is-light" id="ticketEditError" role="alert" hidden></p>
+      </div>
+      <footer><button class="button" type="button" data-close-ticket-dialog>Cancel</button><button class="button is-light" id="reloadTicketEdit" type="button">Reload latest</button><button class="button is-link" type="submit">Save changes</button></footer>
+    </form>
+  </dialog>
+  <dialog id="ticketImagesDialog" class="ticket-dialog" aria-labelledby="ticketImagesTitle">
+    <form id="ticketImagesForm">
+      <header><h2 class="title is-4" id="ticketImagesTitle">Add ticket images</h2><button class="delete" type="button" data-close-ticket-dialog aria-label="Close"></button></header>
+      <div class="ticket-dialog-body">
+        <p class="ticket-help" id="ticketImagesContext"></p>
+        <label>Your staff name<input class="input ticket-actor" name="actor_name" maxlength="180" required autocomplete="name"></label>
+        <label>PNG/JPEG images<input class="input" type="file" name="images" accept="image/png,image/jpeg" multiple required></label>
+        <p class="ticket-help">Five images per ticket; each image may be up to 5 MiB and 20 megapixels. Images are retained with the ticket history.</p>
+        <p class="notification is-danger is-light" id="ticketImagesError" role="alert" hidden></p>
+      </div>
+      <footer><button class="button" type="button" data-close-ticket-dialog>Cancel</button><button class="button is-light" type="button" id="reloadTicketImages">Reload latest</button><button class="button is-link" type="submit">Upload images</button></footer>
+    </form>
+  </dialog>
 
   <div id="email-modal" class="modal" aria-labelledby="emailModalTitle" aria-modal="true" role="dialog">
     <div class="modal-background"></div>

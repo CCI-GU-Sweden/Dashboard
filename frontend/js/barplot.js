@@ -24,12 +24,14 @@ const views = {
   uploads: uploadsView,
   omero: omeroView,
   compute: computeView,
+  tickets: document.getElementById('ticketsView'),
 };
 const viewPaths = {
   overview: '/',
   uploads: '/uploads',
   omero: '/omero',
   compute: '/compute',
+  tickets: '/tickets',
 };
 
 function getViewFromPath() {
@@ -205,7 +207,12 @@ async function fetchOverview() {
   errorElement.hidden = true;
 
   try {
-    renderOverview(await fetchJson('/api/summary'));
+    const [summary] = await Promise.allSettled([
+      fetchJson('/api/summary'),
+      window.ticketDashboard.loadSummary(),
+    ]);
+    if (summary.status === 'rejected') throw summary.reason;
+    renderOverview(summary.value);
   } catch (error) {
     errorElement.textContent = error.message;
     errorElement.hidden = false;
@@ -231,6 +238,7 @@ async function loadOmeroDashboard() {
 
 async function activateView(viewName, { historyMode = 'push', loadData = true } = {}) {
   const selectedView = views[viewName] ? viewName : 'overview';
+  if (selectedView !== 'tickets') window.ticketDashboard.leave();
 
   Object.entries(views).forEach(([name, element]) => {
     element.hidden = name !== selectedView;
@@ -247,6 +255,7 @@ async function activateView(viewName, { historyMode = 'push', loadData = true } 
   if (selectedView === 'overview') await fetchOverview();
   if (selectedView === 'uploads') await loadUploadsDashboard();
   if (selectedView === 'omero') await loadOmeroDashboard();
+  if (selectedView === 'tickets') await window.ticketDashboard.load();
 }
 
 function openDashboard(viewName) {
@@ -1554,6 +1563,7 @@ function makeCardNavigable(cardId, viewName) {
 makeCardNavigable('uploadsCard', 'uploads');
 makeCardNavigable('omeroCard', 'omero');
 makeCardNavigable('computeCard', 'compute');
+makeCardNavigable('ticketsCard', 'tickets');
 
 document.getElementById('backToOverview').addEventListener('click', () => activateView('overview'));
 document.querySelectorAll('.dashboard-back').forEach((button) => {

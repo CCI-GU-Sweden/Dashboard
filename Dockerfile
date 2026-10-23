@@ -1,5 +1,5 @@
 # Use official Node.js image
-FROM registry.access.redhat.com/ubi8/nodejs-18
+FROM registry.access.redhat.com/ubi9/nodejs-22
 
 WORKDIR /opt/app-root/src
 
