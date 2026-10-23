@@ -45,7 +45,11 @@ The dashboard reads these tables through its existing statistics-database `PG*` 
 
 The test database already contains `microscope_ticket`, `microscope_ticket_event`, and `microscope_ticket_image`. The supplied table descriptions match this implementation. **Do not rerun migration 001 in that database.** Use the verification queries in the [collector setup guide](../Omero-storage-collector/db/MICROSCOPE_TICKETS_SETUP.md) to check the existing `filestats_collector` grants. Full schema and workflow details are in [MICROSCOPE_TICKETS_PROPOSAL.md](MICROSCOPE_TICKETS_PROPOSAL.md).
 
-The ticket backend reuses `PGHOST`, `PGPORT`, and `PGDATABASE` (the existing `omerofilestats` database). Add these entries to the dashboard container's existing `env` list, preserving all current settings:
+By default, Tickets reuses the exact same PostgreSQL pool as OMERO Storage: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD`. Keep the existing Secret mappings; no ticket-specific environment variables or additional password are required.
+
+Migration 001 grants ticket access to `filestats_collector`. If the dashboard's existing `PGUSER` is different, an administrator must give that existing role the ticket table/sequence grants described in [proposal section 7](MICROSCOPE_TICKETS_PROPOSAL.md#7-updating-postgresql-permissions). Apply only the grants, **not the table migration again**.
+
+Alternatively, to deliberately connect only Tickets as `filestats_collector` while keeping another role for uploads/storage, add both optional entries to the dashboard container's existing `env` list:
 
 ```yaml
 - name: TICKET_PGUSER
@@ -60,7 +64,7 @@ The ticket backend reuses `PGHOST`, `PGPORT`, and `PGDATABASE` (the existing `om
       key: password
 ```
 
-For the test namespace, edit the deployment with `oc -n core-omero-test edit deployment/dashboard`, then merge the entries under the dashboard container's `env`. If the main connection already uses `PGUSER=filestats_collector`, the existing pool can be reused without these two ticket variables. No new PostgreSQL login or password is required. The Secret must exist in the dashboard's namespace. If the ticket connection is missing or its grants are insufficient, the Tickets area reports the configuration error independently of uploads/storage.
+For this optional override, edit the test deployment with `oc -n core-omero-test edit deployment/dashboard`, then merge both entries under the dashboard container's `env`. The Secret must exist in the dashboard's namespace. Set both override variables or remove both to use the shared connection; a partial pair reports a configuration error. Insufficient ticket grants are reported independently of uploads/storage.
 
 Build a new dashboard image using the updated Dockerfile (UBI 9 / Node.js 22) and dependencies, deploy it with the existing test-image workflow, then check `oc -n core-omero-test rollout status deployment/dashboard`. Local development requires Node.js 22+: run `npm ci` and `npm start` in `backend`. Credentials belong in the process environment, not Git.
 

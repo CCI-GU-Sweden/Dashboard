@@ -4,10 +4,9 @@ const existingPool = require('./db');
 let ticketPool;
 
 function getTicketPool() {
-  if (process.env.PGUSER === 'filestats_collector'
-      && !process.env.TICKET_PGUSER && !process.env.TICKET_PGPASSWORD) return existingPool;
+  if (!process.env.TICKET_PGUSER && !process.env.TICKET_PGPASSWORD) return existingPool;
   if (!process.env.TICKET_PGUSER || !process.env.TICKET_PGPASSWORD) {
-    const error = new Error('Ticket database access is not configured. Map TICKET_PGUSER and TICKET_PGPASSWORD from filestats-collector-secret.');
+    const error = new Error('Set both TICKET_PGUSER and TICKET_PGPASSWORD for a separate ticket connection, or remove both to reuse the existing dashboard connection.');
     error.status = 503;
     throw error;
   }

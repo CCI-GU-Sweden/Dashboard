@@ -439,7 +439,7 @@ function createTicketsRouter({ pool } = {}) {
       .json({ error: 'Upload up to five PNG/JPEG files, each at most 5 MiB, using the images field.' });
     if (error.status) return res.status(error.status).json({ error: error.message });
     if (['23514', '22001', '22003', '22P02'].includes(error.code)) return res.status(400).json({ error: 'Ticket data does not satisfy the database limits.' });
-    if (error.code === '42501') return res.status(503).json({ error: 'The ticket database role needs the grants in migration 001. Contact the administrator.' });
+    if (error.code === '42501') return res.status(503).json({ error: 'The current database role lacks ticket permissions. Ask an administrator to apply the ticket grants in proposal section 7; do not rerun migration 001.' });
     if (error.code === '42P01') return res.status(503).json({ error: 'Ticket tables are unavailable in this database. Check the test/production connection.' });
     console.error('Ticket request failed:', error.code || error.name);
     return res.status(500).json({ error: 'Unable to complete the ticket request. Please retry.' });

@@ -28,7 +28,7 @@ Images remain binary `bytea` values in the deployed five-column image table. Met
 
 The shared login cannot verify individual staff identities. Forms require a self-reported staff name, recorded with a `staff-entered:` prefix. Confirm that the shared dashboard password is limited to staff before enabling staff writes for other audiences. Automatic contact-form ingestion and chat creation remain work in the separate contact application; this implementation creates manual reports with `source = DASHBOARD`.
 
-The container now uses the UBI 9 Node.js 22 image and the project requires Node.js 22 or later. Patched Multer/Sharp releases are recorded in `backend/package-lock.json`; rebuild the image to deploy these dependencies. Keep existing `PG*` connection settings, and map `TICKET_PGUSER` / `TICKET_PGPASSWORD` from `filestats-collector-secret` as described below. If the main pool already connects as `filestats_collector`, it can be reused without extra ticket credential variables.
+The container now uses the UBI 9 Node.js 22 image and the project requires Node.js 22 or later. Patched Multer/Sharp releases are recorded in `backend/package-lock.json`; rebuild the image to deploy these dependencies. Tickets reuses the existing OMERO Storage `PG*` pool, including its username and password, by default. No extra ticket credential variables are required. A paired `TICKET_PGUSER` / `TICKET_PGPASSWORD` override is optional, as described below.
 
 ## 1. Purpose and placement
 
@@ -46,7 +46,7 @@ Use the ticket emoji **🎫** for the card, with an accessible text label. The b
 
 The ticket inventory will record user contact-form submissions and issues entered directly by staff. Staff will be able to search the inventory, create internal issues or major incidents, update status, and record resolution details. Each ticket represents one initial report; later chat replies belong to the existing chat system.
 
-Use the existing **`omerofilestats` database on the `filestatistics-pg15` PostgreSQL service**, already used by the dashboard and `Omero-storage-collector`. Add `public.microscope_ticket` to that database and use the existing **`filestats_collector`** login for ticket access. Reuse its password from **`filestats-collector-secret`**; no new ticket database role or password is needed. This requires an additive table migration and grants, with no new database, PostgreSQL service, database pod, or persistent volume. Verify the deployed `PGDATABASE` and service name before applying the migration.
+Use the existing **`omerofilestats` database on the `filestatistics-pg15` PostgreSQL service**, already used by the dashboard and `Omero-storage-collector`. Add the ticket tables to that database. By default, dashboard ticket access uses the same connection and credentials as OMERO Storage. The migration grants the existing **`filestats_collector`** role access; if the dashboard uses another existing role, apply the ticket grants to that role as described in section 7, or optionally use the collector credentials from **`filestats-collector-secret`** for Tickets. No new role or password is needed. This requires an additive table migration and grants, with no new database, PostgreSQL service, database pod, or persistent volume. Verify the deployed `PGDATABASE` and service name before applying the migration.
 
 This statistics database is separate from the source OMERO database, `omerodb` on `omero-postgres-server`. `omero-stats-reader-secret` provides read-only access to that source database and is not a ticket credential.
 
@@ -58,8 +58,8 @@ The proposal is based on the current repository:
 
 | Component | Existing location | Proposed use |
 | --- | --- | --- |
-| Existing PostgreSQL pool | `backend/db.js` | Provides the current dashboard connection and shared `PGHOST`, `PGPORT`, and `PGDATABASE` settings. |
-| Ticket PostgreSQL pool | `backend/ticket-db.js` | Uses the same host/port/database with `TICKET_PGUSER` / `TICKET_PGPASSWORD` mapped from the existing collector Secret. Ticket routes connect as `filestats_collector`. |
+| Existing PostgreSQL pool | `backend/db.js` | Provides the shared uploads/storage/ticket connection using all five existing `PG*` settings. |
+| Ticket connection selector | `backend/ticket-db.js` | Returns the existing pool by default, regardless of role name. Only creates a separate pool when both optional `TICKET_PGUSER` / `TICKET_PGPASSWORD` overrides are supplied. |
 | Express application | `backend/index.js` | Mount a dedicated ticket router. |
 | Authentication | `backend/middleware/auth.js` | Protect staff ticket reads and writes. |
 | Fileset API | `backend/routes/omero.js` | Reuse its validation, parameterized-query, pagination, and sorting patterns. |
@@ -85,12 +85,12 @@ Reviewed sources in `D:\DATA\Simon\GitHub\Omero-storage-collector`:
 | Statistics port | `5432` | Reuse as `PGPORT`. |
 | Statistics database | `omerofilestats` | Reuse as `PGDATABASE`; add the ticket tables to `public`. |
 | PostgreSQL version baseline | PostgreSQL 15 or compatible | Check the deployed version before migration. |
-| Existing dashboard role / Secret example | `filestats_dashboard` / `filestatistics-app-credentials` | Existing uploads/storage connection; ticket access uses the collector login below. |
-| Ticket and collector role | `filestats_collector` | Reuse this existing role and add ticket-specific grants. |
-| Ticket and collector Secret | `filestats-collector-secret` | Reuse its `username` / `password` keys for the ticket backend; no new PostgreSQL password. |
+| Existing dashboard role / Secret example | `filestats_dashboard` / `filestatistics-app-credentials` | Existing uploads/storage connection, reused by Tickets by default. Verify the deployed username and its ticket grants. |
+| Collector role / optional ticket override | `filestats_collector` | The migration grants this existing role ticket access. If the dashboard already uses it, no further grants are needed. |
+| Collector Secret / optional ticket override | `filestats-collector-secret` | Its `username` / `password` keys can optionally configure ticket-specific credentials; no new PostgreSQL password. |
 | Source OMERO reader Secret | `omero-stats-reader-secret` | Remains for OMERO extraction only. |
 
-The collector uses `STATS_DB_HOST`, `STATS_DB_PORT`, and `STATS_DB_NAME`; this dashboard uses `PGHOST`, `PGPORT`, and `PGDATABASE`. Their values point to the same statistics service/database. The ticket pool uses those same `PG*` connection settings plus `TICKET_PGUSER` / `TICKET_PGPASSWORD` for the reused collector login. Injecting only `STATS_DB_*` variables into this dashboard would not configure its Node.js pools.
+The collector uses `STATS_DB_HOST`, `STATS_DB_PORT`, and `STATS_DB_NAME`; this dashboard uses `PGHOST`, `PGPORT`, and `PGDATABASE`. Their values point to the same statistics service/database. Tickets also reuses the main pool's `PGUSER` and `PGPASSWORD` by default. The optional paired `TICKET_PGUSER` / `TICKET_PGPASSWORD` override changes only ticket credentials. Injecting only `STATS_DB_*` variables into this dashboard would not configure its Node.js pools.
 
 ```text
 filestatistics-pg15:5432 / omerofilestats / public
@@ -100,14 +100,15 @@ filestatistics-pg15:5432 / omerofilestats / public
             microscope_ticket_image (optional PNG/JPEG bytes)
 
 Dashboard uploads/storage → existing PG* pool → existing dashboard login
-Dashboard tickets → ticket pool, same database → filestats_collector
+Dashboard tickets → same existing PG* pool → existing dashboard login (default)
+Optional ticket override → separate pool, same database → filestats_collector
 Contact backend → same filestats_collector login or authenticated ingestion API
 Collector → existing STATS_DB_* connection → filestats_collector
 ```
 
 The ticket history is the previously proposed companion table in this same database, not a second database. The collector runtime does not create/migrate tables and does not need changes to collect microscope tickets.
 
-The ticket-specific pool keeps this credential change scoped to tickets. The existing dashboard pool continues serving uploads, storage, billing, and health with its current credentials. A second pool is an application connection configuration, not a new PostgreSQL database or role. If the deployed dashboard already uses `filestats_collector` for its main pool, ticket routes can reuse that pool instead.
+The default shares one pool and the current dashboard credentials across uploads, storage, billing, health, and Tickets. If a separate existing collector login is preferred for Tickets, the optional override keeps that choice scoped to tickets. A second pool is an application connection configuration, not a new PostgreSQL database or role.
 
 Assume Kubernetes with OpenShift's `oc` CLI. The resource commonly intended by “SecretMap” is a Kubernetes **Secret**. A **ConfigMap** holds non-secret configuration. Credentials should continue to come from the existing Secret references; the JavaScript frontend must never receive them. See [Kubernetes Secrets](https://kubernetes.io/docs/concepts/configuration/secret/).
 
@@ -394,9 +395,11 @@ The extension must be installed by an authorized database role. GIN trigram inde
 
 ## 7. Updating PostgreSQL permissions
 
-Use the existing **`filestats_collector`** role for ticket reads and writes. Keep its existing permissions on collector tables and storage policies. Add only the ticket-table/sequence grants below; do not create another PostgreSQL role or password, change the collector password, or grant schema ownership.
+The one-time migration gives the existing **`filestats_collector`** role ticket read/write access. Tickets uses the dashboard's existing `PGUSER` by default. If that role is already `filestats_collector`, the migration grants apply directly. If it is different, an administrator can apply just the grants below with every `filestats_collector` recipient replaced by that actual existing role name. This needs no new role, password, or Secret. Alternatively, configure the optional collector credential override in section 11. Keep existing collector/storage permissions and table ownership; add only ticket-table/sequence grants.
 
-The shared role already has permissions to modify collector inventory, snapshots, and storage policies. A backend using this login has those existing permissions as well as the new ticket permissions. This is the chosen credential-reuse arrangement; ticket routes must still validate input and expose only the intended ticket operations.
+For an initialized database, **do not rerun migration 001** to adjust permissions. Run only the grant transaction below against `omerofilestats`, using an authorized administrator account. Repeating these grants is safe. Confirm the intended existing role name first; quote a role identifier with double quotes if it contains special characters.
+
+The collector role already has permissions to modify collector inventory, snapshots, and storage policies. A backend using that login has those existing permissions as well as the ticket permissions. When reusing a different dashboard role, add only its ticket grants; no collector-role membership is needed. Ticket routes must still validate input and expose only the intended ticket operations.
 
 The one-time migration already includes these additive grants. It must run as the table/sequence owner or an authorized administrator in the statistics database. The SQL below explains the permissions; do not run a second grant file after applying the migration:
 
@@ -428,13 +431,13 @@ Verify the generated sequence names with `pg_get_serial_sequence()` after creati
 
 The same role can look up duplicate submissions, create tickets/events/images, and update chat references. Column grants protect original report fields during updates. Do not add `DELETE`, `TRUNCATE`, event/image updates, or schema creation rights, and keep table ownership with the administrator/migration account. Check existing role membership and `PUBLIC` grants because additive grants cannot remove privileges already held.
 
-When the contact backend writes directly to PostgreSQL, it also uses `filestats_collector` with the existing collector Secret and must insert the `CREATED` event in the same transaction, applying the same chat/version rules as the dashboard API. Because both backends share one database identity, their application code enforces the distinction between staff status updates and contact/chat updates; PostgreSQL cannot distinguish those applications by role.
+When the contact backend writes directly to PostgreSQL, it uses `filestats_collector` with the existing collector Secret and must insert the `CREATED` event in the same transaction, applying the same chat/version rules as the dashboard API. If both backends share this database identity, their application code enforces the distinction between staff status updates and contact/chat updates; PostgreSQL cannot distinguish applications sharing a role.
 
-Alternatively, submit through a service-authenticated ingestion endpoint owned by the dashboard, keeping the PostgreSQL credentials in that backend. Both approaches use the same existing PostgreSQL login. Choose based on connectivity; never expose the database credentials or staff shared password to contact-form clients.
+Alternatively, submit through a service-authenticated ingestion endpoint owned by the dashboard, keeping the PostgreSQL credentials in that backend. Both approaches reuse an existing PostgreSQL login. Choose based on connectivity; never expose the database credentials or staff shared password to contact-form clients.
 
 ## 8. API design
 
-Add `backend/routes/tickets.js` and mount it at `/api/tickets` in `backend/index.js`. Its queries use the ticket pool in `backend/ticket-db.js`, connected as `filestats_collector` to the same statistics database. If the existing pool already uses that role, reuse it as described in section 2. This dedicated namespace matches the standalone Tickets area. Add `/tickets` to the application's explicit frontend routes so direct navigation and browser refresh open the ticket view.
+Add `backend/routes/tickets.js` and mount it at `/api/tickets` in `backend/index.js`. Its queries use `backend/ticket-db.js`, which selects the existing dashboard pool by default or the optional credential override, against the same statistics database. This dedicated namespace matches the standalone Tickets area. Add `/tickets` to the application's explicit frontend routes so direct navigation and browser refresh open the ticket view.
 
 | Method and route | Purpose |
 | --- | --- |
@@ -618,7 +621,9 @@ oc describe secret filestats-collector-secret
 oc get cronjob omero-storage-collector -o jsonpath='{.spec.jobTemplate.spec.template.spec.containers[*].env[*].valueFrom}'
 ```
 
-Use the actual namespace and deployment name. Keep the deployment's existing `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD` mappings. Add these explicit mappings for ticket access to the dashboard container's existing `env` list:
+Use the actual namespace and deployment name. Keep the deployment's existing `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD` mappings. **The default requires no extra Secret mapping:** Tickets uses the same connection as OMERO Storage. Leave both `TICKET_PGUSER` and `TICKET_PGPASSWORD` unset for this behavior.
+
+Only if you deliberately want Tickets to use the existing collector login instead of the main dashboard login, add both of these optional mappings to the dashboard container's existing `env` list:
 
 ```yaml
 env:
@@ -636,15 +641,15 @@ env:
 
 Expected non-secret connection values are `PGHOST=filestatistics-pg15`, `PGPORT=5432`, and `PGDATABASE=omerofilestats`; the collector Secret's `username` should identify `filestats_collector`. Preserve working host/port/database references if they already come from a Secret, ConfigMap, or explicit environment settings. A separate non-secret ConfigMap can provide `TICKET_DISPLAY_TIMEZONE=Europe/Stockholm`.
 
-The implemented `backend/ticket-db.js` reads `host`, `port`, and `database` from `PGHOST`, `PGPORT`, and `PGDATABASE`, and `user` / `password` from `TICKET_PGUSER` / `TICKET_PGPASSWORD`. Both ticket credential variables are required when using its dedicated pool. If both are absent and `PGUSER=filestats_collector`, it reuses `backend/db.js`; it never falls back to an unrelated main-pool login. Database connections retain the existing `pg`/PostgreSQL client TLS configuration rather than disabling TLS for the new pool.
+The implemented `backend/ticket-db.js` returns the existing `backend/db.js` pool whenever both ticket override variables are absent, regardless of the main role name. With both overrides supplied, it creates a dedicated pool using the existing `PGHOST`, `PGPORT`, and `PGDATABASE` with the override username/password. Supplying only one override reports an error rather than mixing credentials. To return to shared credentials, remove both overrides. Database connections retain the existing `pg`/PostgreSQL client TLS configuration rather than disabling TLS for the new pool.
 
-The existing collector maps `filestats-collector-secret`'s same `username` and `password` keys to `STATS_DB_USER` / `STATS_DB_PASSWORD`. The ticket backend reuses those credential values through Node.js-specific environment names. Use explicit `secretKeyRef` mappings rather than `envFrom`, since keys named `username` / `password` would not configure either Node.js pool by themselves. No new ticket database Secret or PostgreSQL password is required in this namespace.
+The existing collector maps `filestats-collector-secret`'s same `username` and `password` keys to `STATS_DB_USER` / `STATS_DB_PASSWORD`. The optional ticket override reuses those credential values through Node.js-specific environment names. For that override, use explicit `secretKeyRef` mappings rather than `envFrom`, since keys named `username` / `password` would not configure either Node.js pool by themselves. No new ticket database Secret or PostgreSQL password is required in this namespace.
 
 For a directly connected contact backend, reference this same Secret and map its keys into the connection variable names that backend expects. It also connects as `filestats_collector` to the same statistics database. With service-authenticated API ingestion, the contact backend needs an integration credential instead of database credentials. Neither path uses the source OMERO reader Secret.
 
 Secrets are namespace-scoped. In the same namespace, the short service name `filestatistics-pg15` resolves to the existing database service. For an application in another namespace, use the actual service DNS name, such as `filestatistics-pg15.core-omero-test.svc` for the documented test namespace, arrange allowed network access, and provision that application's Secret in its own namespace. Use production database/Secret values for production; do not point production tickets at the test database.
 
-Updating database grants alone does not require changing the Secret or restarting the collector. Adding the proposed ticket environment mappings and application code requires a dashboard rollout. If the collector password is rotated later, all backends sharing these credentials must pick up the change; environment-injected Secret values require new pods. Do not give owner credentials to the running dashboard to make migration convenient.
+Updating database grants alone does not require changing the Secret or restarting the collector. Deploying the application code or changing the optional ticket environment mappings requires a dashboard rollout. If a shared password is rotated later, all backends sharing those credentials must pick up the change; environment-injected Secret values require new pods. Do not give owner credentials to the running dashboard to make migration convenient.
 
 ### Apply the migration using the collector's administrator workflow
 
@@ -770,11 +775,11 @@ SELECT has_sequence_privilege(
 );
 ```
 
-Run these checks through the ticket connection and confirm `current_user = 'filestats_collector'` and `current_database() = 'omerofilestats'`. If the contact backend connects directly, verify that it uses this same role. Confirm ticket reads/inserts, status/category/chat updates, and event inserts are permitted, while original-message updates, event updates, and destructive ticket operations are denied. With shared credentials, limiting contact/chat operations is an application responsibility, not a difference in PostgreSQL grants. Check event sequence usage as well. Perform a disposable write/update test in the test environment; roll back its transaction or retain it as clearly labelled test data.
+Run these checks through the ticket connection and confirm `current_user` matches the dashboard's existing `PGUSER`, or `filestats_collector` if using the optional collector override, and `current_database() = 'omerofilestats'`. Check the actual role's grants, not just the collector's. If the contact backend connects directly, verify its configured role as well. Confirm ticket reads/inserts, status/category/chat updates, and event inserts are permitted, while original-message updates, event updates, and destructive ticket operations are denied. With shared credentials, limiting contact/chat operations is an application responsibility, not a difference in PostgreSQL grants. Check event sequence usage as well. Perform a disposable write/update test in the test environment; roll back its transaction or retain it as clearly labelled test data.
 
 Recommended rollout sequence:
 
-1. Confirm that the dashboard's `PG*` settings and the collector's `STATS_DB_*` settings target the same intended statistics service/database. Verify the ticket credential mappings reuse `filestats-collector-secret` and identify `filestats_collector`. Check database version, microscope vocabulary, and chat provider behavior.
+1. Confirm that the dashboard's `PG*` settings and the collector's `STATS_DB_*` settings target the same intended statistics service/database. Tickets shares the dashboard connection by default; verify that its existing role has ticket grants. If using the optional ticket credential override, verify both mappings reuse `filestats-collector-secret` and identify `filestats_collector`. Check database version, microscope vocabulary, and chat provider behavior.
 2. In the already-initialized test database, verify the three tables, role grants, and connection mapping without rerunning 001. Apply the collector-repository migration only to another database that has not received it, once per database.
 3. Deploy the dashboard ticket API and UI, initially with integration disabled.
 4. Deploy the contact-form integration and exercise submission, chat failure, retry, and resolution flows.
@@ -799,15 +804,15 @@ The work spans the shared statistics database, the database-management files in 
 | Work area | Deliverable |
 | --- | --- |
 | Database / collector repository | `db/migrations/001_microscope_tickets.sql` includes ticket/history/image tables, indexes, and collector-role grants in one transaction; `db/MICROSCOPE_TICKETS_SETUP.md` provides the beginner guide and image smoke test. Apply once to existing `omerofilestats` and record completion. No collector-runtime changes are required. |
-| Backend | `backend/routes/tickets.js`, mount in `backend/index.js`, and ticket pool wired to `filestats_collector` using the existing collector Secret. Validated queries, transactional writes/history, version conflicts, and staff access enforcement. |
+| Backend | `backend/routes/tickets.js`, mount in `backend/index.js`, and shared existing dashboard pool by default, with an optional paired collector credential override. Validated queries, transactional writes/history, version conflicts, and staff access enforcement. |
 | Frontend | Standalone 🎫 Tickets overview card and `/tickets` view, server-side DataTable, full filter controls, create/update dialogs, history, and safe chat links. |
 | Contact app | Stable submission UUID, ticket persistence, chat-reference storage, retry handling, and integration authentication or the reused `filestats_collector` credentials for direct database ingestion. |
-| OpenShift | Reuse `filestatistics-pg15` and `filestats-collector-secret`; add the ticket credential mappings to the dashboard. No new ticket PostgreSQL role or password. Use existing administrator access or an optional migration Job with separate administrative credentials, then stage deployment. |
+| OpenShift | Reuse `filestatistics-pg15` and existing dashboard Secret mappings. Optional ticket overrides can reuse `filestats-collector-secret`. No new ticket PostgreSQL role or password. Use existing administrator access or an optional migration Job with separate administrative credentials, then stage deployment. |
 | Documentation | API/permission additions to README and an operator migration/recovery procedure. |
 
 Before enabling production ingestion, verify these meaningful behaviors:
 
-- Ticket queries connect to the intended `omerofilestats` database as `filestats_collector`, reusing `filestats-collector-secret`. The existing uploads/storage connection continues working, and no new ticket PostgreSQL login or password is introduced.
+- Ticket queries connect to the intended `omerofilestats` database through the existing uploads/storage pool by default. Verify the actual runtime role's ticket grants. Optional paired overrides can use `filestats_collector` from `filestats-collector-secret`. No new ticket PostgreSQL login or password is introduced.
 - The 🎫 Tickets main card opens its own view; direct `/tickets` navigation, refresh, back/forward, and return to the overview work.
 - One contact submission creates one ticket with the correct name, microscope, initial message, and server opening time.
 - A ticket accepts zero or more optional PNG/JPEG images. Each image links to an existing ticket; invalid formats, mismatched signatures, empty files, and files over 5 MiB are rejected. The backend also verifies decoding/dimensions and enforces the five-image limit under a ticket lock.
