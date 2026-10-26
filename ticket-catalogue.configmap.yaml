@@ -1,0 +1,51 @@
+# Apply in the intended namespace, for example:
+# oc -n core-omero-test apply -f ticket-catalogue.configmap.yaml
+# Keep IDs stable when changing display names; do not reuse retired IDs.
+# Mount using ticket-catalogue.deployment-patch.yaml; restart after catalogue edits.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ticket-catalogue
+data:
+  catalogue.yaml: |
+    staff:
+      - id: simon
+        name: Simon
+      - id: massimo
+        name: Massimo
+      - id: karl
+        name: Karl
+      - id: rafael
+        name: Rafael
+      - id: noemi
+        name: Noemi
+      - id: ketan
+        name: Ketan
+      - id: jens
+        name: Jens
+      - id: julia
+        name: Julia
+
+    microscopes:
+      - id: talos
+        name: TALOS
+      - id: sem_gemini
+        name: SEM-Gemini
+      - id: lsm_700
+        name: LSM 700
+      - id: lsm_710
+        name: LSM 710
+      - id: lsm_880
+        name: LSM 880
+      - id: lsm_980
+        name: LSM 980
+      - id: cd7
+        name: CD7
+      - id: elyra7
+        name: Elyra7
+      - id: lightsheet7
+        name: LightSheet7
+      - id: imager
+        name: Imager
+      - id: observer
+        name: Observer

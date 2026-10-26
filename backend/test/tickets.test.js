@@ -5,12 +5,22 @@ const jwt = require('jsonwebtoken');
 const sharp = require('sharp');
 const { randomUUID } = require('crypto');
 const { Pool } = require('pg');
+const YAML = require('yaml');
+const { parseTicketCatalogue } = require('../ticket-catalogue');
 const { createTicketsRouter, buildTicketQuery, validateImages } = require('../routes/tickets');
+
+const catalogue = parseTicketCatalogue(YAML.stringify({
+  staff: ['Test staff', 'Staff A', 'Staff B', 'Staff C', 'Staff'].map((name) => ({ id: name.toLowerCase().replaceAll(' ', '_'), name })),
+  microscopes: [
+    { id: 'microscope_a', name: 'Microscope A' }, { id: 'a', name: 'A' }, { id: 'b', name: 'B' },
+    { id: 'lsm_880', name: 'LSM 880' }, { id: 'lsm_980', name: 'LSM 980' },
+  ],
+}));
 
 const token = jwt.sign({ access: true }, process.env.JWT_SECRET || 'supersecret');
 const auth = { Authorization: `Bearer ${token}` };
 async function serve(pool) {
-  const app = express(); app.use(express.json()); app.use('/api/tickets', createTicketsRouter({ pool }));
+  const app = express(); app.use(express.json()); app.use('/api/tickets', createTicketsRouter({ pool, catalogue }));
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   return { url: `http://127.0.0.1:${server.address().port}/api/tickets`,
@@ -32,19 +42,50 @@ async function png() { return sharp({ create: { width: 3, height: 3, channels: 3
 test('ticket filters parameterize literal wildcard characters and combine multi-selections', () => {
   const query = buildTicketQuery({ message: '50%_gain', status: ['OPEN', 'WAITING'],
     microscope: ['A', 'B'], facilityWide: 'true', issueType: 'SOFTWARE', issueTypeUnspecified: 'true',
-    startDate: '2026-10-25', endDate: '2026-10-25', dateField: 'opened_at' });
+    startDate: '2026-10-25', endDate: '2026-10-25', dateField: 'opened_at' }, catalogue);
   assert.equal(query.values[0], '%50\\%\\_gain%');
   assert.deepEqual(query.values[1], ['OPEN', 'WAITING']);
   assert.match(query.where, /OR t.microscope IS NULL/);
   assert.match(query.where, /OR t.issue_type IS NULL/);
   assert.match(query.where, /Europe\/Stockholm/);
   assert.match(query.where, /::date \+ 1/);
-  assert.throws(() => buildTicketQuery({ sort: 'opened_at; DROP TABLE x' }));
-  assert.throws(() => buildTicketQuery({ dateField: 'message' }));
-  assert.throws(() => buildTicketQuery({ startDate: '2026-02-30' }));
-  assert.throws(() => buildTicketQuery({ startDate: '2026-03-02', endDate: '2026-03-01' }));
-  assert.throws(() => buildTicketQuery({ status: 'UNKNOWN' }));
-  assert.throws(() => buildTicketQuery({ pageSize: '101' }));
+  assert.throws(() => buildTicketQuery({ sort: 'opened_at; DROP TABLE x' }, catalogue));
+  assert.throws(() => buildTicketQuery({ dateField: 'message' }, catalogue));
+  assert.throws(() => buildTicketQuery({ startDate: '2026-02-30' }, catalogue));
+  assert.throws(() => buildTicketQuery({ startDate: '2026-03-02', endDate: '2026-03-01' }, catalogue));
+  assert.throws(() => buildTicketQuery({ status: 'UNKNOWN' }, catalogue));
+  assert.throws(() => buildTicketQuery({ pageSize: '101' }, catalogue));
+  const namedSearch = buildTicketQuery({ search: 'LSM 980', assignedTo: 'staff_a' }, catalogue);
+  assert.ok(namedSearch.values.some((value) => Array.isArray(value) && value.includes('lsm_980')));
+  assert.match(namedSearch.where, /t.assigned_to = \$/);
+  assert.throws(() => buildTicketQuery({ microscope: 'LSM 990' }, catalogue));
+  assert.throws(() => buildTicketQuery({ assignedTo: 'Staf A' }, catalogue));
+});
+
+test('catalogue options include unused microscopes and staff without a database lookup', async () => {
+  const server = await serve({ query: () => { throw new Error('Options must use configuration'); } });
+  try {
+    const options = await request(`${server.url}/filter-options`);
+    assert.equal(options.status, 200);
+    assert.deepEqual(options.data.microscopes, catalogue.microscopes);
+    assert.deepEqual(options.data.staff, catalogue.staff);
+  } finally { await server.close(); }
+});
+
+test('unknown microscope, staff author or assignment cannot reach a ticket write', async () => {
+  let connections = 0;
+  const server = await serve({ connect: () => { connections += 1; throw new Error('Unexpected write'); } });
+  try {
+    for (const override of [{ microscope: 'LSM 990' }, { actor_name: 'Staf A' }, { assigned_to: 'Staf A' }]) {
+      assert.equal((await request(server.url, 'POST', payload(override))).status, 400);
+    }
+    for (const [route, method, body] of [
+      ['/1', 'PATCH', { version: 1, actor_name: 'Staf A', status: 'WAITING' }],
+      ['/1/notes', 'POST', { version: 1, actor_name: 'Staf A', note: 'Attempted fix' }],
+      ['/1/images', 'POST', { version: 1, actor_name: 'Staf A' }],
+    ]) assert.equal((await request(`${server.url}${route}`, method, body)).status, 400);
+    assert.equal(connections, 0);
+  } finally { await server.close(); }
 });
 test('real image decoding rejects a header-only fake and normalizes a safe PNG filename', async () => {
   const good = await png();
@@ -99,6 +140,37 @@ test('ticket API against PostgreSQL: transactions, concurrency, filters, images,
   const api = server.url;
   const image = await png();
   try {
+    await suite.test('catalogue selections store IDs, normalize case and filter by configured display names', async () => {
+      const input = payload({ microscope: ' lSm   980 ', actor_name: ' TEST STAFF ',
+        assigned_to: ' Staff A ', reporter_name: 'External reporter outside the staff catalogue' });
+      const created = await request(api, 'POST', input);
+      assert.equal(created.status, 201, JSON.stringify(created.data));
+      assert.equal(created.data.microscope, 'lsm_980');
+      assert.equal(created.data.assigned_to, 'staff_a');
+      assert.equal(created.data.created_by, 'staff-entered: test_staff');
+      assert.equal(created.data.reporter_name, input.reporter_name);
+      const stored = await admin.query('SELECT microscope, assigned_to FROM public.microscope_ticket WHERE ticket_id=$1', [created.data.ticket_id]);
+      assert.deepEqual(stored.rows[0], { microscope: 'lsm_980', assigned_to: 'staff_a' });
+      const filtered = await request(`${api}?status=all&microscope=LSM%20980&assignedTo=staff_a`);
+      assert.ok(filtered.data.data.some((row) => row.ticket_id === created.data.ticket_id));
+      const searched = await request(`${api}?status=all&search=LSM%20980`);
+      assert.ok(searched.data.data.some((row) => row.ticket_id === created.data.ticket_id));
+      const other = await request(api, 'POST', payload({ microscope: 'LSM 880' }));
+      assert.equal(other.status, 201);
+      assert.equal(other.data.microscope, 'lsm_880');
+      const updated = await request(`${api}/${created.data.ticket_id}`, 'PATCH', {
+        version: 1, actor_name: 'Staff A', assigned_to: 'Staff B',
+      });
+      assert.equal(updated.status, 200, JSON.stringify(updated.data));
+      assert.equal(updated.data.assigned_to, 'staff_b');
+      const invalid = await request(`${api}/${created.data.ticket_id}`, 'PATCH', {
+        version: 2, actor_name: 'Staff A', assigned_to: 'Staf B',
+      });
+      assert.equal(invalid.status, 400);
+      const unchanged = await request(`${api}/${created.data.ticket_id}`);
+      assert.equal(unchanged.data.version, 2);
+      assert.equal(unchanged.data.assigned_to, 'staff_b');
+    });
     await suite.test('create, identical replay, conflicting replay, and immutable report', async () => {
       const input = payload({ message: '<script>alert(1)</script> 50%_gain', issue_type: '' });
       const created = await request(api, 'POST', input);
@@ -149,7 +221,7 @@ test('ticket API against PostgreSQL: transactions, concurrency, filters, images,
       assert.equal(first.data.version, 2);
       assert.equal(first.data.message, created.data.message);
       assert.equal(first.data.status, 'OPEN');
-      assert.equal(first.data.updated_by, 'staff-entered: Staff A');
+      assert.equal(first.data.updated_by, 'staff-entered: staff_a');
       assert.equal((await request(url, 'POST', { version: 1, note: firstText, actor_name: 'Staff A' })).status, 409);
       const competing = await Promise.all([
         request(url, 'POST', { version: 2, note: 'Cable checked; no improvement.', actor_name: 'Staff B' }),
@@ -165,7 +237,7 @@ test('ticket API against PostgreSQL: transactions, concurrency, filters, images,
       const notes = events.data.data.filter((item) => item.changes.update_kind === 'PROGRESS_NOTE');
       assert.equal(notes.length, 3);
       assert.equal(notes.at(-1).note, firstText);
-      assert.equal(notes.at(-1).actor, 'staff-entered: Staff A');
+      assert.equal(notes.at(-1).actor, 'staff-entered: staff_a');
       assert.ok(notes.every((item) => item.old_status === 'OPEN' && item.new_status === 'OPEN' && item.occurred_at));
       const resolved = await request(`${api}/${ticketId}`, 'PATCH', { version: 4,
         actor_name: 'Staff A', status: 'RESOLVED', resolution_note: 'Replacement controller worked.' });

@@ -5,6 +5,7 @@ const path = require('path');
 const { createHash } = require('crypto');
 const { authMiddleware } = require('../middleware/auth');
 const { getTicketPool } = require('../ticket-db');
+const { getTicketCatalogue } = require('../ticket-catalogue');
 
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CANCELLED'];
 const ACTIVE = STATUSES.slice(0, 3);
@@ -69,7 +70,7 @@ function onlyFields(body, allowed) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) fail('Invalid request body');
   if (Object.keys(body).some((key) => !allowed.includes(key))) fail('Unexpected ticket field');
 }
-function actor(body) { return `staff-entered: ${text(body.actor_name, 'Staff name', 180, true)}`; }
+function actor(body, catalogue) { return `staff-entered: ${catalogue.resolve('staff', body.actor_name, { label: 'staff name' })}`; }
 function validDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) fail('Invalid calendar date');
   const parsed = new Date(`${value}T00:00:00Z`);
@@ -77,24 +78,26 @@ function validDate(value) {
   return value;
 }
 
-function buildTicketQuery(query) {
+function buildTicketQuery(query, catalogue) {
   const values = [];
   const filters = [];
   const add = (value) => { values.push(value); return `$${values.length}`; };
-  const contains = (value, columns, label) => {
+  const contains = (value, columns, label, extra = () => []) => {
     const term = text(value, label, 200);
     if (term) {
       const pattern = add(`%${term.replace(/[\\%_]/g, '\\$&')}%`);
-      filters.push(`(${columns.map((column) => `${column} ILIKE ${pattern}`).join(' OR ')})`);
+      filters.push(`(${[...columns.map((column) => `${column} ILIKE ${pattern}`), ...extra(term)].join(' OR ')})`);
     }
   };
-  contains(query.search, ['t.ticket_id::text', 't.reporter_name', 't.microscope', 't.message'], 'Search');
+  contains(query.search, ['t.ticket_id::text', 't.reporter_name', 't.microscope', 't.message'], 'Search', (term) => {
+    const ids = catalogue.microscopes.filter((entry) => entry.name.toLowerCase().includes(term.toLowerCase())).map((entry) => entry.id);
+    return ids.length ? [`t.microscope = ANY(${add(ids)}::text[])`] : [];
+  });
   contains(query.reporter, ['t.reporter_name'], 'Reporter search');
   contains(query.message, ['t.message'], 'Message search');
   const statuses = selections(query.status, STATUSES, 'status', ACTIVE);
   if (statuses.length) filters.push(`t.status = ANY(${add(statuses)}::text[])`);
-  const microscopes = selections(query.microscope, null, 'microscope');
-  if (microscopes.some((scope) => !scope || scope.length > 150)) fail('Invalid microscope');
+  const microscopes = selections(query.microscope, null, 'microscope').map((value) => catalogue.resolve('microscopes', value, { label: 'microscope' }));
   const microscopeFilters = [];
   if (microscopes.length) microscopeFilters.push(`t.microscope = ANY(${add(microscopes)}::text[])`);
   if (flag(query.facilityWide)) microscopeFilters.push('t.microscope IS NULL');
@@ -115,7 +118,7 @@ function buildTicketQuery(query) {
   if (flag(query.unassigned)) {
     if (text(query.assignedTo, 'Assigned staff', 200)) fail('Choose assigned staff or unassigned');
     filters.push('t.assigned_to IS NULL');
-  } else contains(query.assignedTo, ['t.assigned_to'], 'Assigned staff');
+  } else if (query.assignedTo) filters.push(`t.assigned_to = ${add(catalogue.resolve('staff', query.assignedTo, { label: 'assigned staff' }))}`);
   const dateField = choice(query.dateField, ['opened_at', 'resolved_at', 'updated_at'], 'date field', 'opened_at');
   const start = scalar(query.startDate, 'start date');
   const end = scalar(query.endDate, 'end date');
@@ -223,9 +226,10 @@ SELECT c.cutoff AS comparison_at,
     WHERE r.resolved_time > c.earlier AND r.resolved_time <= c.cutoff) AS previous_resolved
 FROM clock c LEFT JOIN historical t ON true GROUP BY c.cutoff, c.current_time, c.earlier`;
 
-function createTicketsRouter({ pool } = {}) {
+function createTicketsRouter({ pool, catalogue } = {}) {
   const router = express.Router();
   const database = () => pool || getTicketPool();
+  const catalog = () => catalogue || getTicketCatalogue();
   const route = (handler) => async (req, res, next) => { try { await handler(req, res); } catch (error) { next(error); } };
   const transaction = async (callback, readOnly = false) => {
     const client = await database().connect();
@@ -261,14 +265,13 @@ function createTicketsRouter({ pool } = {}) {
     res.json({ comparison_at: row.comparison_at, total: metric('total'), active: metric('active'), resolved: metric('resolved') });
   }));
   router.get('/filter-options', route(async (req, res) => {
-    const { rows } = await database().query(`SELECT DISTINCT microscope FROM public.microscope_ticket
-      WHERE microscope IS NOT NULL ORDER BY microscope`);
-    res.json({ microscopes: rows.map((row) => row.microscope), statuses: STATUSES, types: TYPES,
+    const { microscopes, staff } = catalog();
+    res.json({ microscopes, staff, statuses: STATUSES, types: TYPES,
       issueTypes: ISSUES, priorities: PRIORITIES, timezone: TIMEZONE,
       maxImageBytes: MAX_IMAGE_BYTES, maxImages: MAX_IMAGES });
   }));
   router.get('/', route(async (req, res) => {
-    const options = buildTicketQuery(req.query);
+    const options = buildTicketQuery(req.query, catalog());
     const { page, pageSize, where, values, orderBy } = options;
     const result = await transaction(async (client) => {
       const total = await client.query('SELECT count(*)::int AS count FROM public.microscope_ticket');
@@ -323,18 +326,19 @@ function createTicketsRouter({ pool } = {}) {
     const body = req.body;
     onlyFields(body, ['reporter_name', 'reporter_identifier', 'microscope', 'message', 'ticket_type',
       'issue_type', 'priority', 'assigned_to', 'source_event_id', 'actor_name']);
-    const who = actor(body);
+    const catalogue = catalog();
+    const who = actor(body, catalogue);
     const requestId = scalar(body.source_event_id, 'Submission ID');
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) fail('A submission UUID is required');
     const fields = {
       reporter_name: text(body.reporter_name, 'Reporter', 200, true),
       reporter_identifier: text(body.reporter_identifier, 'Reporter identifier', 254),
-      microscope: text(body.microscope, 'Microscope', 150),
+      microscope: catalogue.resolve('microscopes', body.microscope, { optional: true, label: 'microscope' }),
       message: text(body.message, 'Message', 20000, true),
       ticket_type: choice(body.ticket_type, TYPES, 'ticket type', 'USER_REQUEST'),
       issue_type: choice(text(body.issue_type, 'Issue type', 30) ?? undefined, ISSUES, 'issue type', null),
       priority: choice(body.priority, PRIORITIES, 'priority', 'NORMAL'),
-      assigned_to: text(body.assigned_to, 'Assigned staff', 200),
+      assigned_to: catalogue.resolve('staff', body.assigned_to, { optional: true, label: 'assigned staff' }),
     };
     const images = await validateImages(req.files);
     const hash = createHash('sha256').update(JSON.stringify({ ...fields, actor: who,
@@ -367,7 +371,8 @@ function createTicketsRouter({ pool } = {}) {
     const ticketId = id(req.params.ticketId);
     const body = req.body;
     onlyFields(body, ['version', 'status', 'resolution_note', 'change_note', 'priority', 'assigned_to', 'issue_type', 'actor_name']);
-    const who = actor(body);
+    const catalogue = catalog();
+    const who = actor(body, catalogue);
     const version = integer(body.version, null, 2147483647);
     if (!version) fail('Current ticket version is required');
     const result = await transaction(async (client) => {
@@ -387,7 +392,7 @@ function createTicketsRouter({ pool } = {}) {
       const next = {
         status,
         priority: choice(body.priority, PRIORITIES, 'priority', old.priority),
-        assigned_to: body.assigned_to === undefined ? old.assigned_to : text(body.assigned_to, 'Assigned staff', 200),
+        assigned_to: body.assigned_to === undefined ? old.assigned_to : catalogue.resolve('staff', body.assigned_to, { optional: true, label: 'assigned staff' }),
         issue_type: body.issue_type === undefined ? old.issue_type
           : choice(text(body.issue_type, 'Issue type', 30) ?? undefined, ISSUES, 'issue type', null),
         resolution_note: closing ? text(body.resolution_note, 'Closing note', 2000) : reopening ? null : old.resolution_note,
@@ -414,7 +419,7 @@ function createTicketsRouter({ pool } = {}) {
   router.post('/:ticketId/notes', route(async (req, res) => {
     const ticketId = id(req.params.ticketId);
     onlyFields(req.body, ['version', 'note', 'actor_name']);
-    const who = actor(req.body);
+    const who = actor(req.body, catalog());
     const note = text(req.body.note, 'Progress update', 2000, true);
     const version = integer(req.body.version, null, 2147483647);
     if (!version) fail('Current ticket version is required');
@@ -435,7 +440,7 @@ function createTicketsRouter({ pool } = {}) {
   router.post('/:ticketId/images', parseUpload, route(async (req, res) => {
     const ticketId = id(req.params.ticketId);
     onlyFields(req.body, ['version', 'actor_name']);
-    const who = actor(req.body);
+    const who = actor(req.body, catalog());
     const version = integer(req.body.version, null, 2147483647);
     if (!version) fail('Current ticket version is required');
     const images = await validateImages(req.files);

@@ -78,6 +78,40 @@ Multer bounds multipart uploads, and Sharp checks full PNG/JPEG decoding with a 
 
 Run `npm test` in `backend` for validation and existing-route tests. PostgreSQL integration tests are opt-in using `TICKET_TEST_DATABASE_URL` (runtime role) and `TICKET_TEST_ADMIN_URL` (test administrator) against a **dedicated disposable test database**; they create fixture reports and adjust their dates. Do not point them at deployed test or production data.
 
+## Ticket staff and microscope catalogue
+
+Tickets uses [ticket-catalogue.configmap.yaml](ticket-catalogue.configmap.yaml) for microscope, staff-author, assignment, and assigned-staff filter dropdowns. All configured entries are available even before they have tickets. Reporter name/identifier remain free text for people contacting staff. The API validates selections and resolves IDs, exact names, or configured aliases to stable IDs, ignoring case and outer/repeated whitespace. Unknown values are rejected; LSM 880 and LSM 980 are never fuzzy-matched.
+
+The existing `microscope` and `assigned_to` columns store catalogue IDs; staff attribution is `staff-entered: <staff_id>`. The UI displays configured names. Keep IDs stable when renaming entries, never reuse them, and retain entries referenced by older tickets. Staff selection remains self-reported under the shared login. No SQL migration is required. No conversion of older free-text ticket values is included.
+
+Creating the ConfigMap does not mount it into the container. From the repository root, attach it to the existing test deployment using the supplied strategic merge patch, which preserves the image, credentials, probes, and other settings:
+
+```powershell
+oc -n core-omero-test apply -f ticket-catalogue.configmap.yaml
+oc patch deployment dashboard-test --type=strategic --patch-file ticket-catalogue.deployment-patch.yaml
+oc -n core-omero-test rollout status deployment/dashboard-test
+```
+
+Deploy a rebuilt dashboard image containing these code/dependency changes using the normal image workflow; the commands above do not build or replace the image. The patch mounts the ConfigMap read-only at `/etc/dashboard/ticket-catalogue`. The backend reads the **inner `catalogue.yaml` file** at `/etc/dashboard/ticket-catalogue/catalogue.yaml`; it does not read the full Kubernetes manifest. For production, apply the ConfigMap in the production namespace and adjust the patch's container name and command's deployment name to match that workload. See [Kubernetes ConfigMap volumes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/#add-configmap-data-to-a-volume).
+
+The validated catalogue is cached after first use. After editing entries, apply the ConfigMap, restart the dashboard, then reload the browser or click Tickets **Refresh**:
+
+```powershell
+oc -n core-omero-test apply -f ticket-catalogue.configmap.yaml
+oc -n core-omero-test rollout restart deployment/dashboard-test
+oc -n core-omero-test rollout status deployment/dashboard-test
+```
+
+Missing, malformed, duplicate, or ambiguous configuration reports an actionable error; there is no free-text fallback. Optional `aliases: ["LSM980"]` on an entry allows that exact spelling. Aliases must not collide with another entry's ID, name, or aliases in the same list. `GET /api/tickets/filter-options` returns configured staff/microscope arrays of `{id, name}`. Future contact integrations must follow the same ID convention.
+
+For local development, set `TICKET_CATALOGUE_PATH` to a file containing the inner catalogue YAML (not the ConfigMap manifest). From `backend`, after `npm ci`:
+
+```powershell
+$env:TICKET_CATALOGUE_PATH = Join-Path $env:TEMP 'dashboard-ticket-catalogue.yaml'
+node -e "const fs = require('fs'); const YAML = require('yaml'); const config = YAML.parse(fs.readFileSync('../ticket-catalogue.configmap.yaml', 'utf8')); fs.writeFileSync(process.env.TICKET_CATALOGUE_PATH, config.data['catalogue.yaml']);"
+npm start
+```
+
 ## Security
 
 Access to the database is done by setting up the correct credentials in OpenShift.  

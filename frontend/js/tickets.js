@@ -9,6 +9,11 @@ window.ticketDashboard = (() => {
     LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', CRITICAL: 'Critical',
   };
   const display = (value) => names[value] || value || 'Not specified';
+  const catalogueName = (kind, value) => options?.[kind]?.find((entry) => entry.id === value)?.name || value;
+  const staffName = (value) => catalogueName('staff', value) || 'Unassigned';
+  const microscopeName = (value) => catalogueName('microscopes', value) || 'Facility-wide';
+  const actorName = (value) => value?.startsWith('staff-entered: ')
+    ? `staff-entered: ${staffName(value.slice('staff-entered: '.length))}` : value;
   const date = (value) => value ? new Intl.DateTimeFormat(undefined, {
     timeZone: 'Europe/Stockholm', dateStyle: 'medium', timeStyle: 'short',
   }).format(new Date(value)) : '—';
@@ -31,11 +36,15 @@ window.ticketDashboard = (() => {
   }
   function message(id, value) { $(id).textContent = value || ''; $(id).hidden = !value; }
   function selected(id) { return [...$(id).selectedOptions].map((option) => option.value); }
-  function populate(id, values, { optional = false, defaults = [] } = {}) {
-    const select = $(id);
+  function populate(id, values, { optional = false, defaults = [], emptyLabel = 'Not specified' } = {}) {
+    const select = typeof id === 'string' ? $(id) : id;
     select.replaceChildren();
-    if (optional) select.add(new Option('Not specified', ''));
-    values.forEach((value) => select.add(new Option(display(value), value, defaults.includes(value), defaults.includes(value))));
+    if (optional) select.add(new Option(emptyLabel, ''));
+    values.forEach((entry) => {
+      const value = typeof entry === 'object' ? entry.id : entry;
+      const label = typeof entry === 'object' ? entry.name : display(entry);
+      select.add(new Option(label, value, defaults.includes(value), defaults.includes(value)));
+    });
   }
   async function loadOptions(force = false) {
     if (options && !force) return;
@@ -53,7 +62,16 @@ window.ticketDashboard = (() => {
     }
     const previous = selected('ticketMicroscopeFilter');
     populate('ticketMicroscopeFilter', next.microscopes, { defaults: previous });
-    $('ticketMicroscopeOptions').replaceChildren(...next.microscopes.map((name) => new Option(name, name)));
+    for (const [id, entries, emptyLabel] of [
+      ['ticketCreateMicroscope', next.microscopes, 'Facility-wide'],
+      ['ticketCreateAssigned', next.staff, 'Unassigned'],
+      ['ticketEditAssigned', next.staff, 'Unassigned'],
+      ['ticketAssignedFilter', next.staff, 'All staff'],
+    ]) populate(id, entries, { optional: true, emptyLabel, defaults: [$(id).value] });
+    document.querySelectorAll('select.ticket-actor').forEach((select) => {
+      populate(select, next.staff, { optional: true, emptyLabel: 'Choose your name',
+        defaults: [select.value || sessionStorage.getItem('ticketActor')] });
+    });
     options = next;
   }
   function params() {
@@ -82,7 +100,7 @@ window.ticketDashboard = (() => {
       + Number(Boolean($('ticketAssignedFilter').value)) + Number($('ticketUnassigned').checked);
     $('ticketMoreFilterCount').textContent = extra ? `(${extra} selected)` : '';
     const status = selected('ticketStatusFilter').map(display).join(', ') || 'All statuses';
-    const scopes = selected('ticketMicroscopeFilter').join(', ');
+    const scopes = selected('ticketMicroscopeFilter').map(microscopeName).join(', ');
     $('ticketFilterSummary').textContent = `${status} · ${scopes || 'All microscopes'}${$('ticketFacilityWide').checked ? ' + facility-wide' : ''} · ${query.get('dateField').replace('_at', '')} dates · Europe/Stockholm`;
     return query;
   }
@@ -144,12 +162,12 @@ window.ticketDashboard = (() => {
         { data: 'ticket_id', render: DataTable.render.text() },
         { data: 'opened_at', render: date },
         { data: 'reporter_name', render: DataTable.render.text() },
-        { data: 'microscope', defaultContent: 'Facility-wide', render: DataTable.render.text() },
+        { data: 'microscope', render: (value) => DataTable.render.text().display(microscopeName(value)) },
         { data: 'message_preview', className: 'ticket-message-preview', render: DataTable.render.text() },
         { data: null, render: (_, type, row) => DataTable.render.text().display(`${display(row.ticket_type)} · ${display(row.priority)}`) },
         { data: 'issue_type', render: (value) => DataTable.render.text().display(display(value)) },
         { data: 'status', render: (value) => `<span class="ticket-status ticket-status-${value.toLowerCase()}">${display(value)}</span>` },
-        { data: 'assigned_to', defaultContent: 'Unassigned', render: DataTable.render.text() },
+        { data: 'assigned_to', render: (value) => DataTable.render.text().display(staffName(value)) },
         { data: 'resolved_at', render: date },
         { data: 'image_count', render: DataTable.render.number(null, null, 0) },
         { data: null, defaultContent: '<div class="ticket-actions"><button class="button is-small ticket-edit" type="button">Edit ticket</button><button class="button is-small ticket-note" type="button">Add update</button><button class="button is-small ticket-upload" type="button">Add images</button></div>' },
@@ -181,13 +199,16 @@ window.ticketDashboard = (() => {
   function historyEntry(item) {
     const block = node('article', null, 'ticket-event');
     const changes = item.changes || {};
-    block.append(node('strong', `${date(item.occurred_at)} · ${item.actor}`));
+    block.append(node('strong', `${date(item.occurred_at)} · ${actorName(item.actor)}`));
     block.append(node('p', item.event_type === 'CREATED' ? 'Ticket created'
       : changes.update_kind === 'PROGRESS_NOTE' ? 'Progress update'
       : item.old_status !== item.new_status ? `${display(item.old_status)} → ${display(item.new_status)}` : 'Ticket updated'));
     if (item.note) block.append(node('p', item.note, 'ticket-preserve-text'));
     for (const [key, label] of [['priority', 'Priority'], ['assigned_to', 'Assigned staff'], ['issue_type', 'Issue type']]) {
-      if (changes[key]) block.append(node('p', `${label}: ${display(changes[key].before)} → ${display(changes[key].after)}`));
+      if (changes[key]) {
+        const format = key === 'assigned_to' ? staffName : display;
+        block.append(node('p', `${label}: ${format(changes[key].before)} → ${format(changes[key].after)}`));
+      }
     }
     if (changes.resolution_note?.before && !changes.resolution_note.after) block.append(node('p', `Previous closing note: ${changes.resolution_note.before}`, 'ticket-preserve-text'));
     const images = changes.images_added || changes.images;
@@ -230,6 +251,7 @@ window.ticketDashboard = (() => {
       const details = node('div', null, 'ticket-detail-grid'); root.append(details);
       field(details, 'Original report', ticket.message);
       field(details, 'Reported by', `${ticket.reporter_name}${ticket.reporter_identifier ? ` · ${ticket.reporter_identifier}` : ''}`);
+      field(details, 'Microscope / assigned staff', `${microscopeName(ticket.microscope)} / ${staffName(ticket.assigned_to)}`);
       field(details, 'Opened / updated (Europe/Stockholm)', `${date(ticket.opened_at)} / ${date(ticket.updated_at)}`);
       field(details, 'Closing date', ticket.status === 'CANCELLED' ? date(ticket.closed_at) : date(ticket.resolved_at));
       field(details, 'Resolution / closing note', ticket.resolution_note || 'No closing note provided');
@@ -302,7 +324,7 @@ window.ticketDashboard = (() => {
     }
     for (const key of ['status', 'priority', 'assigned_to', 'issue_type']) form.elements[key].value = ticket[key] || '';
     $('ticketEditTitle').textContent = `Update ticket #${ticketId}`;
-    $('ticketEditContext').textContent = `${ticket.reporter_name} · ${ticket.microscope || 'Facility-wide'} · Version ${ticket.version}`;
+    $('ticketEditContext').textContent = `${ticket.reporter_name} · ${microscopeName(ticket.microscope)} · Version ${ticket.version}`;
     message('ticketEditError', ''); updateEditFields();
     if (!$('ticketEditDialog').open) $('ticketEditDialog').showModal();
   }
@@ -327,7 +349,7 @@ window.ticketDashboard = (() => {
     noteDraftTicketId = ticketId;
     noteTicket = ticket;
     $('ticketNoteTitle').textContent = `Add update to ticket #${ticketId}`;
-    $('ticketNoteContext').textContent = `${ticket.reporter_name} · ${ticket.microscope || 'Facility-wide'} · ${display(ticket.status)} · Version ${ticket.version}`;
+    $('ticketNoteContext').textContent = `${ticket.reporter_name} · ${microscopeName(ticket.microscope)} · ${display(ticket.status)} · Version ${ticket.version}`;
     $('ticketNoteCount').textContent = `${form.elements.note.value.length.toLocaleString()} / 2,000`;
     message('ticketNoteError', '');
     if (!$('ticketNoteDialog').open) $('ticketNoteDialog').showModal();

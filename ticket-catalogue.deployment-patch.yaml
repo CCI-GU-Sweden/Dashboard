@@ -1,0 +1,20 @@
+# Strategic merge patch for the existing test Deployment; preserves its image,
+# credentials, probes, and other container settings. This is not a Deployment.
+# oc -n core-omero-test patch deployment dashboard-test --type=strategic --patch-file ticket-catalogue.deployment-patch.yaml
+# For production, change the container name below to its actual deployed name.
+spec:
+  template:
+    spec:
+      containers:
+        - name: dashboard-test
+          volumeMounts:
+            - name: ticket-catalogue
+              mountPath: /etc/dashboard/ticket-catalogue
+              readOnly: true
+      volumes:
+        - name: ticket-catalogue
+          configMap:
+            name: ticket-catalogue
+            items:
+              - key: catalogue.yaml
+                path: catalogue.yaml

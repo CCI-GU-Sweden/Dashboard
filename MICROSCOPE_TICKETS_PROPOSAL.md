@@ -26,11 +26,21 @@ Multer handles bounded multipart uploads: at most five images per ticket, 5,242,
 
 Images remain binary `bytea` values in the deployed five-column image table. Metadata routes exclude binary payloads; a ticket-scoped content endpoint serves image bytes with authentication, private caching, and `nosniff`. The browser fetches with its Bearer header, displays an object URL, and releases the URL when details are closed or the view changes. Initial ticket/images/history are committed together. Later image additions update the ticket version and append metadata to history in one transaction.
 
-The shared login cannot verify individual staff identities. Forms require a self-reported staff name, recorded with a `staff-entered:` prefix. Confirm that the shared dashboard password is limited to staff before enabling staff writes for other audiences. Automatic contact-form ingestion and chat creation remain work in the separate contact application; this implementation creates manual reports with `source = DASHBOARD`.
+The shared login cannot verify individual staff identities. Forms require selecting a configured staff member, recorded as `staff-entered: <staff_id>`. The dashboard displays the configured name, but this selection remains self-reported. Confirm that the shared dashboard password is limited to staff before enabling staff writes for other audiences. Automatic contact-form ingestion and chat creation remain work in the separate contact application; this implementation creates manual reports with `source = DASHBOARD`.
 
 The container now uses the UBI 9 Node.js 22 image and the project requires Node.js 22 or later. Patched Multer/Sharp releases are recorded in `backend/package-lock.json`; rebuild the image to deploy these dependencies. Tickets reuses the existing OMERO Storage `PG*` pool, including its username and password, by default. No extra ticket credential variables are required. A paired `TICKET_PGUSER` / `TICKET_PGPASSWORD` override is optional, as described below.
 
 ## 1. Purpose and placement
+
+### Controlled staff and microscope catalogue (implemented 2026-10-26)
+
+The **`ticket-catalogue` ConfigMap** supplies staff authors, assignment choices, and microscopes. [ticket-catalogue.configmap.yaml](ticket-catalogue.configmap.yaml) lists eight staff and eleven microscopes. The backend loads its inner `catalogue.yaml` through a read-only volume at `/etc/dashboard/ticket-catalogue/catalogue.yaml`; `TICKET_CATALOGUE_PATH` can override this filename. See the [README deployment instructions](README.md#ticket-staff-and-microscope-catalogue) and [test deployment patch](ticket-catalogue.deployment-patch.yaml) for mounting and restart commands. Applying the ConfigMap alone does not mount it.
+
+The create form uses a microscope dropdown and optional staff assignment dropdown. Every write form requires a staff-author selection, and assignment filtering uses a staff dropdown. The reporter's name/identifier remain free text for external users; they are not restricted to staff. Facility-wide reports and unassigned tickets retain their blank/NULL options. `filter-options` supplies the complete configured lists, including microscopes without tickets, as `{id, name}` arrays. The UI preserves selections when refreshing options and renders configured names in the table, details, contexts, and history.
+
+Store stable catalogue IDs in the existing `microscope` and `assigned_to` columns, and `staff-entered: <staff_id>` for attribution. The API validates all staff/microscope writes, accepts IDs or exact configured names/aliases, and normalizes case and whitespace before resolving the ID. Unknown values are rejected with `400`; there is no fuzzy correction or free-text fallback. Configuration rejects duplicate IDs and ambiguous names/aliases. In particular, `lsm_880` and `lsm_980` remain distinct. Keep IDs stable when changing display names and retain historical entries in the catalogue. Selecting a staff name does not authenticate that person.
+
+The catalogue is cached after first successful use. Apply configuration changes, restart the dashboard, then refresh Tickets. Missing or invalid configuration reports `503` with a mount/configuration instruction. No schema change, new lookup table, credential, or grant is required; the collector's existing migration supports these IDs in its varchar columns. No conversion of pre-catalogue test ticket values is included. Future contact integrations must use canonical IDs too, rather than writing unvalidated display names directly.
 
 ### Troubleshooting updates (implemented 2026-10-26)
 
@@ -203,7 +213,7 @@ Each row is one report, regardless of whether it originated in the contact form 
 | `ticket_id` | `bigint`, generated identity | Primary key | Stable ticket number; return as a string in JSON to avoid JavaScript integer precision loss. |
 | `reporter_name` | `varchar(200)` | Required | User's name or staff reporter's name. Store it separately from the staff editor. |
 | `reporter_identifier` | `varchar(254)` | Optional | Stable user ID or email if the contact app already has it; do not add a mandatory form field. |
-| `microscope` | `varchar(150)` | Optional | Canonical microscope name; `NULL` means facility-wide / not applicable. |
+| `microscope` | `varchar(150)` | Optional | Stable microscope catalogue ID, such as `lsm_980`; `NULL` means facility-wide / not applicable. |
 | `message` | `text` | Required, 1–20,000 characters | Original report, kept immutable in the normal edit API. |
 | `ticket_type` | `varchar(30)` | `USER_REQUEST` | `USER_REQUEST`, `INTERNAL_ISSUE`, or `INCIDENT`. |
 | `issue_type` | `varchar(30)` | Optional, `NULL` | Problem category: `SOFTWARE`, `HARDWARE`, `CONNECTION`, `ACCESS_PERMISSIONS`, `ACQUISITION_IMAGE_QUALITY`, or `OTHER`. Independent of `ticket_type`. |
@@ -214,7 +224,7 @@ Each row is one report, regardless of whether it originated in the contact form 
 | `opened_at` | `timestamptz` | `now()` | Date/time of first report. |
 | `resolved_at` | `timestamptz` | Optional | Current resolution time; present only for `RESOLVED`. |
 | `resolution_note` | `text` | Optional, maximum 2,000 characters | Closing explanation for `RESOLVED` or `CANCELLED`: fix, workaround, or reason for cancellation. Separate from the original message; blank input is stored as `NULL`. |
-| `assigned_to` | `varchar(200)` | Optional | Staff member currently handling the ticket. |
+| `assigned_to` | `varchar(200)` | Optional | Stable staff catalogue ID for the current assignee, such as `simon`. |
 | `chat_thread_id` | `varchar(200)` | Optional | Provider's thread/conversation reference. |
 | `chat_url` | `text` | Optional, maximum 2,000 characters | Link to the existing staff conversation; never a login token. |
 | `chat_state` | `varchar(20)` | `NOT_REQUESTED` | `NOT_REQUESTED`, `PENDING`, `OPEN`, or `FAILED`. |
@@ -224,7 +234,7 @@ Each row is one report, regardless of whether it originated in the contact form 
 | `updated_by` | `varchar(200)` | Required | Most recent editor label or authenticated identity. |
 | `version` | `integer` | `1` | Optimistic concurrency token for edits. |
 
-Prefer stable microscope identifiers if a shared instrument registry exists. For the first release, reuse the contact form's canonical names and normalize whitespace/case at ingestion. The dashboard's upload microscope list can suggest names, but it is not a complete instrument registry: a microscope with no uploads must still be available. Renaming instruments should not silently split filters; define aliases or migrate names explicitly.
+Use stable microscope identifiers from the ConfigMap independently of the upload microscope list. A microscope with no uploads or tickets is still available. Resolve configured display names and optional aliases to these IDs at API ingestion. Rename only an entry's `name`, preserving its `id`, so old tickets continue matching the same microscope filter.
 
 Do not create a foreign key to OMERO filesets, groups, or upload rows: a microscope issue can exist without any image import. The nullable microscope field covers facility-wide incidents. Multiple affected instruments could use a relation table in a future version.
 
@@ -238,7 +248,7 @@ Do not create a foreign key to OMERO filesets, groups, or upload rows: a microsc
 | `old_status`, `new_status` | `varchar(20)` | Status before and after the action, when applicable. |
 | `note` | `text` | Staff explanation; maximum 2,000 characters. Closing events copy the optional closing note here. |
 | `changes` | `jsonb` | Allow-listed old/new values for changed fields, including prior resolution metadata. |
-| `actor` | `varchar(200)` | Authenticated identity or explicitly labelled self-reported staff name. |
+| `actor` | `varchar(200)` | Authenticated identity or explicitly labelled self-reported staff catalogue ID (`staff-entered: simon`). |
 | `occurred_at` | `timestamptz` | Event time, default `now()`. |
 
 Write events and the ticket mutation in the same transaction. Applications receive no event `UPDATE` or `DELETE` privilege. This is application history, not a tamper-proof audit trail: the table owner and database administrators can still modify it. Avoid copying the initial message into every event.
@@ -482,7 +492,7 @@ Add `backend/routes/tickets.js` and mount it at `/api/tickets` in `backend/index
 | --- | --- |
 | `GET /api/tickets` | Paginated, filtered, sorted list with counts. |
 | `GET /api/tickets/summary` | Three card metrics and rolling 30-day comparisons; independent of `/api/summary`. |
-| `GET /api/tickets/filter-options` | Canonical microscope options and fixed status/ticket-type/issue-type/priority lists. Register before `/:ticketId`. |
+| `GET /api/tickets/filter-options` | Complete configured microscope/staff `{id, name}` arrays and fixed status/ticket-type/issue-type/priority lists. Register before `/:ticketId`. |
 | `GET /api/tickets/:ticketId` | Full message, chat reference, and ticket metadata. |
 | `GET /api/tickets/:ticketId/events` | Paginated event history. |
 | `POST /api/tickets/:ticketId/notes` | Append a required progress note with staff author, version protection, and an atomic ticket timestamp/version update. |
@@ -499,14 +509,14 @@ Protect all staff endpoints with `authMiddleware`. If service ingestion is chose
 ```json
 {
   "reporter_name": "CCI staff",
-  "microscope": "Microscope A",
+  "microscope": "lsm_980",
   "message": "Stage movement fails during acquisition; instrument unavailable.",
   "ticket_type": "INCIDENT",
   "issue_type": "HARDWARE",
   "priority": "CRITICAL",
-  "assigned_to": "Staff member",
+  "assigned_to": "massimo",
   "source_event_id": "20a90e48-42dd-45ac-b0d7-21f023263d26",
-  "actor_name": "Staff member"
+  "actor_name": "simon"
 }
 ```
 
@@ -526,7 +536,7 @@ Implement replay handling with the unique key and `INSERT ... ON CONFLICT (sourc
 {
   "version": 3,
   "note": "Restarted the controller; the error persists. Next step: check the connection cable.",
-  "actor_name": "Staff member"
+  "actor_name": "simon"
 }
 ```
 
@@ -541,7 +551,7 @@ The closing note is optional; omitting `resolution_note` from this request is al
   "version": 3,
   "status": "RESOLVED",
   "resolution_note": "Stage controller restarted and test acquisition completed.",
-  "actor_name": "Staff member"
+  "actor_name": "simon"
 }
 ```
 
@@ -555,7 +565,7 @@ Return `400` for invalid filters or input, `401` for an expired/absent login, `4
 
 ### Current authentication limitation
 
-The existing JWT contains only `{ access: true }`; the shared-password login cannot verify which staff member performed an action or distinguish read access from edit access. For a minimal release, explicitly restrict the shared login to staff and require a self-reported `actor_name`, stored as a labelled value such as `staff-entered: Staff member`. Never treat that name as verified identity.
+The existing JWT contains only `{ access: true }`; the shared-password login cannot verify which staff member performed an action or distinguish read access from edit access. For a minimal release, explicitly restrict the shared login to staff and require a catalogue staff selection in `actor_name`, stored as a labelled value such as `staff-entered: simon`. Never treat that selection as verified identity.
 
 If the shared login is also used by non-staff, add a separate staff authorization gate before enabling writes. Individual authentication with verified identity and staff role claims is the better long-term model. Keep `API_TOKEN` and `JWT_SECRET` explicitly configured in production rather than relying on the code's fallback values.
 
@@ -575,7 +585,7 @@ Perform filtering in PostgreSQL across the complete inventory. Filtering only th
 | Issue type | Repeated `issueType`; `issueTypeUnspecified=true` | Software, hardware, connection, access/permissions, acquisition/image quality, or other. OR within selections; include `issue_type IS NULL` when unspecified is selected. |
 | Priority | Repeated `priority` | One or more urgency levels. |
 | Source | `source` | Contact form, dashboard, or all. |
-| Assigned staff | `assignedTo`, `unassigned` | Partial staff-name match or explicit unassigned selection; reject conflicting values. |
+| Assigned staff | `assignedTo`, `unassigned` | Exact configured staff selection, resolved to its catalogue ID, or explicit unassigned selection; reject conflicting values. |
 | Date field | `dateField` | `opened_at` (default), `resolved_at`, or `updated_at`. |
 | Date interval | `startDate`, `endDate` | Optional inclusive calendar bounds in the labelled facility timezone. |
 | Chat state | `chatState` | Especially useful for finding failed/pending chat openings. |
@@ -875,6 +885,7 @@ Before enabling production ingestion, verify these meaningful behaviors:
 - A retry creates no second ticket or second creation event; UUID reuse with altered data is rejected.
 - A chat failure leaves a searchable ticket and a visible failed/pending state; retry links the existing ticket.
 - Staff can create an internal issue and a critical incident without any corresponding upload/fileset.
+- Microscope, assignee, and staff-author selections come from the mounted catalogue, including entries without tickets. Invalid selections are rejected by the API; IDs are stored consistently despite case/whitespace variants. LSM 880 and LSM 980 remain distinct, and changing only a configured display name preserves the stored ID. Missing/invalid configuration gives a clear mount/configuration error.
 - Resolution and cancellation succeed with or without a closing note. Resolution records its timestamp, and cancellation records its closing time in the event history.
 - Closing notes up to 2,000 characters are accepted, longer notes are rejected, and blank notes become `NULL`. The original report remains unchanged.
 - Staff can append troubleshooting notes, including unsuccessful attempts, without changing the original message or closing the ticket. Each records its author/time, retains previous notes, and uses the existing event schema. Empty/overlong notes are rejected; stale/concurrent submissions cannot append silently. Failed transactions leave neither a partial history entry nor a changed parent version. Follow-up notes on closed tickets preserve closing details.
