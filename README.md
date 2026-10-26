@@ -47,7 +47,7 @@ The test database already contains `microscope_ticket`, `microscope_ticket_event
 
 By default, Tickets reuses the exact same PostgreSQL pool as OMERO Storage: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD`. Keep the existing Secret mappings; no ticket-specific environment variables or additional password are required.
 
-Migration 001 grants ticket access to `filestats_collector`. If the dashboard's existing `PGUSER` is different, an administrator must give that existing role the ticket table/sequence grants described in [proposal section 7](MICROSCOPE_TICKETS_PROPOSAL.md#7-updating-postgresql-permissions). Apply only the grants, **not the table migration again**.
+Migration 001 grants ticket access to `filestats_collector`. The running test deployment is **`core-omero-test` / `dashboard-test`** and its actual database role was confirmed as **`filestats_dashboard`** on 2026-10-23. An administrator must give that existing role the ticket table/sequence grants in [proposal section 7](MICROSCOPE_TICKETS_PROPOSAL.md#7-updating-postgresql-permissions); granting only `filestats_collector` access does not give the dashboard role access. Apply only the grants, **not the table migration again**, then refresh Tickets. No password change or dashboard restart is needed for these grants.
 
 Alternatively, to deliberately connect only Tickets as `filestats_collector` while keeping another role for uploads/storage, add both optional entries to the dashboard container's existing `env` list:
 
@@ -64,11 +64,13 @@ Alternatively, to deliberately connect only Tickets as `filestats_collector` whi
       key: password
 ```
 
-For this optional override, edit the test deployment with `oc -n core-omero-test edit deployment/dashboard`, then merge both entries under the dashboard container's `env`. The Secret must exist in the dashboard's namespace. Set both override variables or remove both to use the shared connection; a partial pair reports a configuration error. Insufficient ticket grants are reported independently of uploads/storage.
+For this optional override, edit the test deployment with `oc -n core-omero-test edit deployment/dashboard-test`, then merge both entries under the dashboard container's `env`. The Secret must exist in the dashboard's namespace. Set both override variables or remove both to use the shared connection; a partial pair reports a configuration error. Insufficient ticket grants are reported independently of uploads/storage.
 
-Build a new dashboard image using the updated Dockerfile (UBI 9 / Node.js 22) and dependencies, deploy it with the existing test-image workflow, then check `oc -n core-omero-test rollout status deployment/dashboard`. Local development requires Node.js 22+: run `npm ci` and `npm start` in `backend`. Credentials belong in the process environment, not Git.
+Build a new dashboard image using the updated Dockerfile (UBI 9 / Node.js 22) and dependencies, deploy it with the existing test-image workflow, then check `oc -n core-omero-test rollout status deployment/dashboard-test`. Local development requires Node.js 22+: run `npm ci` and `npm start` in `backend`. Credentials belong in the process environment, not Git.
 
 The card shows total tickets and active tickets compared with 30 days ago, plus distinct resolutions in the last 30 days compared with the preceding 30 days. Historical active counts use recorded status events; missing older history is labelled incomplete. New manual reports start Open, support optional issue categories/images, and can be resolved or cancelled without a closing note. Reopening requires an explanation and preserves the previous closing information in history.
+
+**Add update** records troubleshooting attempts and follow-ups as append-only history entries, each with a staff name, server timestamp, and up to 2,000 characters. It keeps the original report and earlier notes intact, without changing status or closing details. Use **Edit ticket** for status, assignment, priority, or category changes. A stale update form offers **Reload latest** while preserving its draft. This feature uses the existing event table and grants: no schema change or rerun of the collector SQL migration is needed, including for a fresh production schema. See the proposal for API details and the actual runtime role's required grants.
 
 Multer bounds multipart uploads, and Sharp checks full PNG/JPEG decoding with a 20-megapixel limit. Images are stored as PostgreSQL `bytea`. Configure any route/proxy request limit to allow a five-image multipart request (up to 25 MiB of image bytes plus form overhead; 30 MiB accommodates that request). Browsers fetch image content with the login Bearer header; tokens are not embedded in image links. The current API-wide request rate limit remains in effect.
 

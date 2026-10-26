@@ -606,6 +606,19 @@
       <footer><button class="button" type="button" data-close-ticket-dialog>Cancel</button><button class="button is-light" id="reloadTicketEdit" type="button">Reload latest</button><button class="button is-link" type="submit">Save changes</button></footer>
     </form>
   </dialog>
+  <dialog id="ticketNoteDialog" class="ticket-dialog" aria-labelledby="ticketNoteTitle">
+    <form id="ticketNoteForm">
+      <header><h2 class="title is-4" id="ticketNoteTitle">Add ticket update</h2><button class="delete" type="button" data-close-ticket-dialog aria-label="Close"></button></header>
+      <div class="ticket-dialog-body">
+        <p class="ticket-help" id="ticketNoteContext"></p>
+        <p class="ticket-help" id="ticketNoteHelp">Record what you tried, the outcome, and any next steps. This adds a dated entry to the history, keeping the original report and earlier updates. To correct an earlier entry, add another update.</p>
+        <label>Your staff name<input class="input ticket-actor" name="actor_name" maxlength="180" required autocomplete="name"></label>
+        <label>Progress update<textarea class="textarea" name="note" maxlength="2000" rows="6" required aria-describedby="ticketNoteHelp ticketNoteCount" placeholder="Restarted the controller; the error persists. Next step: check the connection cable."></textarea><small id="ticketNoteCount">0 / 2,000</small></label>
+        <p class="notification is-danger is-light" id="ticketNoteError" role="alert" hidden></p>
+      </div>
+      <footer><button class="button" type="button" data-close-ticket-dialog>Close draft</button><button class="button is-light" type="button" id="reloadTicketNote">Reload latest</button><button class="button is-link" type="submit">Add update</button></footer>
+    </form>
+  </dialog>
   <dialog id="ticketImagesDialog" class="ticket-dialog" aria-labelledby="ticketImagesTitle">
     <form id="ticketImagesForm">
       <header><h2 class="title is-4" id="ticketImagesTitle">Add ticket images</h2><button class="delete" type="button" data-close-ticket-dialog aria-label="Close"></button></header>

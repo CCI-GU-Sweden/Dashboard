@@ -32,6 +32,16 @@ The container now uses the UBI 9 Node.js 22 image and the project requires Node.
 
 ## 1. Purpose and placement
 
+### Troubleshooting updates (implemented 2026-10-26)
+
+Use **Add update** to record an attempted fix, its outcome, and next steps. An unsuccessful attempt is useful history and does not require closing the ticket. Keep the initial report unchanged: each submission appends a new event, with a required staff name, server timestamp, and progress note of up to **2,000 characters**. Correct a previous entry by adding a follow-up; there is no edit/delete endpoint for recorded notes. Staff can add a follow-up to a closed ticket without changing its closing note or reopening it. Status, priority, category, and assignment remain available through **Edit ticket**.
+
+No new column, table, or schema migration is required. The existing `microscope_ticket_event.note` already supports this text limit, and existing `UPDATED` events accept structured `changes` metadata. A progress event uses `event_type = 'UPDATED'`, `changes = {"update_kind":"PROGRESS_NOTE"}`, and the unchanged status in both status fields. The UI labels it **Progress update** in the history. This also preserves historical status comparisons. `microscope_ticket.message` remains the original report, rather than growing into a shared editable log.
+
+Each note insertion and the parent ticket's `updated_at`, `updated_by`, and `version` update commit together. A row lock and submitted version prevent duplicate retries with the same version or stale writes; a conflict returns `409` without appending. **Reload latest** in the update form fetches the current version while retaining its draft. Closing and reopening the same draft also retains the text in the current page session. Drafts are not persisted across a full page reload. Submitted notes appear in the existing paginated history under ticket Details; they are displayed as plain text with line breaks.
+
+The existing ticket/event/sequence grants cover this workflow. **Do not rerun migration 001 in test.** The collector's current `db/migrations/001_microscope_tickets.sql` already creates the required objects and supports fresh production deployment for this feature without DDL changes. Production must still grant the actual dashboard runtime role access as described in section 7; the collector-only grants do not cover a different dashboard role.
+
 Add a standalone **🎫 Tickets** main card to the dashboard overview, alongside **Uploads**, **OMERO Storage**, and **Compute**. Clicking it opens a dedicated ticket view at `/tickets`, with the shared university header and login control:
 
 ```text
@@ -395,37 +405,66 @@ The extension must be installed by an authorized database role. GIN trigram inde
 
 ## 7. Updating PostgreSQL permissions
 
-The one-time migration gives the existing **`filestats_collector`** role ticket read/write access. Tickets uses the dashboard's existing `PGUSER` by default. If that role is already `filestats_collector`, the migration grants apply directly. If it is different, an administrator can apply just the grants below with every `filestats_collector` recipient replaced by that actual existing role name. This needs no new role, password, or Secret. Alternatively, configure the optional collector credential override in section 11. Keep existing collector/storage permissions and table ownership; add only ticket-table/sequence grants.
+The one-time migration gives the existing **`filestats_collector`** role ticket read/write access. Tickets uses the dashboard's existing `PGUSER` by default. A read-only check of the running **`core-omero-test` / `dashboard-test`** deployment on 2026-10-23 confirmed that it connects to `omerofilestats` as **`filestats_dashboard`**, not `filestats_collector`. The collector had ticket access, but the dashboard role had none. Granting the collector access again cannot fix that mismatch.
+
+For this test deployment, run the transaction below to give the existing **`filestats_dashboard`** role ticket access. This needs no new role, password, or Secret. For another deployment, verify its actual ticket connection role first and replace the grant recipients if necessary. If that connection already uses `filestats_collector`, the migration grants apply directly. Alternatively, configure the optional collector credential override in section 11. Keep existing collector/storage permissions and table ownership; add only ticket-table/sequence grants.
 
 For an initialized database, **do not rerun migration 001** to adjust permissions. Run only the grant transaction below against `omerofilestats`, using an authorized administrator account. Repeating these grants is safe. Confirm the intended existing role name first; quote a role identifier with double quotes if it contains special characters.
 
 The collector role already has permissions to modify collector inventory, snapshots, and storage policies. A backend using that login has those existing permissions as well as the ticket permissions. When reusing a different dashboard role, add only its ticket grants; no collector-role membership is needed. Ticket routes must still validate input and expose only the intended ticket operations.
 
-The one-time migration already includes these additive grants. It must run as the table/sequence owner or an authorized administrator in the statistics database. The SQL below explains the permissions; do not run a second grant file after applying the migration:
+The one-time migration already includes equivalent grants for `filestats_collector`. It does not grant `filestats_dashboard` access. In the existing administrator `psql` session connected to `omerofilestats`, run this grant-only transaction for the dashboard role. These statements change permissions on existing objects; they do not recreate tables or modify ticket records:
 
 ```sql
 BEGIN;
 
-GRANT CONNECT ON DATABASE omerofilestats TO filestats_collector;
-GRANT USAGE ON SCHEMA public TO filestats_collector;
+GRANT CONNECT ON DATABASE omerofilestats TO filestats_dashboard;
+GRANT USAGE ON SCHEMA public TO filestats_dashboard;
 
-GRANT SELECT, INSERT ON TABLE public.microscope_ticket TO filestats_collector;
+GRANT SELECT, INSERT ON TABLE public.microscope_ticket TO filestats_dashboard;
 GRANT UPDATE (
     status, resolved_at, resolution_note, priority, assigned_to, issue_type,
     chat_thread_id, chat_url, chat_state, updated_at, updated_by, version
-) ON TABLE public.microscope_ticket TO filestats_collector;
-GRANT SELECT, INSERT ON TABLE public.microscope_ticket_event TO filestats_collector;
-GRANT SELECT, INSERT ON TABLE public.microscope_ticket_image TO filestats_collector;
+) ON TABLE public.microscope_ticket TO filestats_dashboard;
+GRANT SELECT, INSERT ON TABLE public.microscope_ticket_event TO filestats_dashboard;
+GRANT SELECT, INSERT ON TABLE public.microscope_ticket_image TO filestats_dashboard;
 
 GRANT USAGE ON SEQUENCE public.microscope_ticket_ticket_id_seq
-    TO filestats_collector;
+    TO filestats_dashboard;
 GRANT USAGE ON SEQUENCE public.microscope_ticket_event_event_id_seq
-    TO filestats_collector;
+    TO filestats_dashboard;
 GRANT USAGE ON SEQUENCE public.microscope_ticket_image_image_id_seq
-    TO filestats_collector;
+    TO filestats_dashboard;
 
 COMMIT;
 ```
+
+Confirm the dashboard role's grants from that same administrator session:
+
+```sql
+SELECT name,
+       has_table_privilege('filestats_dashboard', name, 'SELECT') AS can_read,
+       has_table_privilege('filestats_dashboard', name, 'INSERT') AS can_insert
+FROM unnest(ARRAY[
+    'public.microscope_ticket',
+    'public.microscope_ticket_event',
+    'public.microscope_ticket_image'
+]) AS name;
+
+SELECT has_column_privilege(
+    'filestats_dashboard', 'public.microscope_ticket', 'status', 'UPDATE'
+) AS can_update_status;
+
+SELECT name,
+       has_sequence_privilege('filestats_dashboard', name, 'USAGE') AS can_use
+FROM unnest(ARRAY[
+    'public.microscope_ticket_ticket_id_seq',
+    'public.microscope_ticket_event_event_id_seq',
+    'public.microscope_ticket_image_image_id_seq'
+]) AS name;
+```
+
+All permission results above should be `t`. Refresh Tickets after `COMMIT`; PostgreSQL grants take effect without a dashboard restart or a new deployment. If access still fails, verify that the application and administrator session target the same database service/environment and inspect the actual ticket connection role, including any optional override. Running `SELECT current_user` in the administrator session only identifies the administrator, not the dashboard's role.
 
 Verify the generated sequence names with `pg_get_serial_sequence()` after creation. Explicitly scope grants to these new objects; do not broaden permissions on all tables or change existing fileset/policy privileges. Sequence privileges are separate grant targets; see [PostgreSQL GRANT](https://www.postgresql.org/docs/current/sql-grant.html).
 
@@ -446,6 +485,7 @@ Add `backend/routes/tickets.js` and mount it at `/api/tickets` in `backend/index
 | `GET /api/tickets/filter-options` | Canonical microscope options and fixed status/ticket-type/issue-type/priority lists. Register before `/:ticketId`. |
 | `GET /api/tickets/:ticketId` | Full message, chat reference, and ticket metadata. |
 | `GET /api/tickets/:ticketId/events` | Paginated event history. |
+| `POST /api/tickets/:ticketId/notes` | Append a required progress note with staff author, version protection, and an atomic ticket timestamp/version update. |
 | `GET /api/tickets/:ticketId/images` | Image metadata only: IDs, filenames, extensions, and byte lengths. |
 | `GET /api/tickets/:ticketId/images/:imageId` | Authenticated binary image content, scoped to the specified ticket. |
 | `POST /api/tickets/:ticketId/images` | Validated multipart upload; insert image/history and update ticket version atomically. |
@@ -479,6 +519,18 @@ For optional images, use a bounded multipart creation path carrying the same val
 For later image uploads, lock the parent ticket, enforce the five-image count limit, insert the image plus an `UPDATED` event containing metadata, and update the ticket version/time in the same transaction. Image-list queries explicitly exclude `image_data`; fetch binary content only through the content endpoint, with the same authorization as ticket details. Return verified `image/png` or `image/jpeg`, safe filename headers, `X-Content-Type-Options: nosniff`, and private caching appropriate to support data. There is no image delete/replace API in the initial version.
 
 Implement replay handling with the unique key and `INSERT ... ON CONFLICT (source, source_event_id) DO NOTHING`, followed by a lookup. Do not use an upsert that overwrites a ticket's current status or original message. Insert a `CREATED` event only when a new ticket was actually created.
+
+### Append a troubleshooting update
+
+```json
+{
+  "version": 3,
+  "note": "Restarted the controller; the error persists. Next step: check the connection cable.",
+  "actor_name": "Staff member"
+}
+```
+
+Send this body to `POST /api/tickets/:ticketId/notes`. Accept only `version`, `note`, and `actor_name`; reject blank notes, more than 2,000 characters, missing staff names, and attempts to change the report or status through this endpoint. Return `201` with the current ticket after committing the note, `404` for a missing ticket, or `409` for a stale version. The endpoint uses the same staff authentication as other ticket writes. It preserves current status, original report, opening time, closing note, and resolution time. The event table remains append-only for runtime roles.
 
 ### Resolve example
 
@@ -596,7 +648,7 @@ Initialize the table with `serverSide: true`. Adapt the API response to DataTabl
 
 Debounce text searches by roughly 350 ms, cancel obsolete requests or ignore older responses, and refresh on Tickets view opening or an explicit **Refresh** action. Avoid aggressive polling: the current backend limits `/api` to 100 requests per 15 minutes, shared across dashboard operations.
 
-Expanded details show the complete original message, chat reference/state, opening and resolution timestamps, assignment, and paginated event history. Show the closing note beside the closing date: `resolved_at` for resolution, or the cancellation event's `occurred_at` for cancellation. If no note was supplied, display “No closing note provided”.
+Expanded details show the complete original message, chat reference/state, opening and resolution timestamps, assignment, and paginated event history. **Add update** is available in row actions and next to History. Its form includes the staff name, required progress text, character counter, and **Reload latest**, which preserves the draft after a version conflict. Progress entries show the author, timestamp, and full note alongside other events. Show the closing note beside the closing date: `resolved_at` for resolution, or the cancellation event's `occurred_at` for cancellation. If no note was supplied, display “No closing note provided”.
 
 Include an optional image selector in creation forms and an attachment area in expanded details. Load metadata first, then fetch image bytes as needed for previews/downloads. The current login uses a Bearer token: fetch binary content with that header and display a browser object URL, revoking it when finished. A plain `<img src>` request does not automatically include the existing Bearer header, and access tokens must not be placed in image URLs.
 
@@ -615,8 +667,8 @@ The backend already reads `PG*` environment variables. Start by confirming the e
 ```powershell
 oc project core-omero-test
 oc get service filestatistics-pg15
-oc get deployment dashboard -o jsonpath='{.spec.template.spec.containers[*].envFrom}'
-oc get deployment dashboard -o jsonpath='{.spec.template.spec.containers[*].env[*].valueFrom}'
+oc get deployment dashboard-test -o jsonpath='{.spec.template.spec.containers[*].envFrom}'
+oc get deployment dashboard-test -o jsonpath='{.spec.template.spec.containers[*].env[*].valueFrom}'
 oc describe secret filestats-collector-secret
 oc get cronjob omero-storage-collector -o jsonpath='{.spec.jobTemplate.spec.template.spec.containers[*].env[*].valueFrom}'
 ```
@@ -825,6 +877,7 @@ Before enabling production ingestion, verify these meaningful behaviors:
 - Staff can create an internal issue and a critical incident without any corresponding upload/fileset.
 - Resolution and cancellation succeed with or without a closing note. Resolution records its timestamp, and cancellation records its closing time in the event history.
 - Closing notes up to 2,000 characters are accepted, longer notes are rejected, and blank notes become `NULL`. The original report remains unchanged.
+- Staff can append troubleshooting notes, including unsuccessful attempts, without changing the original message or closing the ticket. Each records its author/time, retains previous notes, and uses the existing event schema. Empty/overlong notes are rejected; stale/concurrent submissions cannot append silently. Failed transactions leave neither a partial history entry nor a changed parent version. Follow-up notes on closed tickets preserve closing details.
 - Reopening clears the current closing note and resolution timestamp while preserving the previous closing status, time, and optional note in history.
 - Two staff editing the same version cannot silently overwrite each other; the second save receives a conflict.
 - Contact-app chat updates cannot overwrite staff status changes.

@@ -16,6 +16,8 @@ window.ticketDashboard = (() => {
   let options;
   let createRequestId;
   let editTicket;
+  let noteTicket;
+  let noteDraftTicketId;
   let imageTicket;
   let imageCount = 0;
   const resources = new Map();
@@ -150,7 +152,7 @@ window.ticketDashboard = (() => {
         { data: 'assigned_to', defaultContent: 'Unassigned', render: DataTable.render.text() },
         { data: 'resolved_at', render: date },
         { data: 'image_count', render: DataTable.render.number(null, null, 0) },
-        { data: null, defaultContent: '<div class="ticket-actions"><button class="button is-small ticket-edit" type="button">Update</button><button class="button is-small ticket-upload" type="button">Add images</button></div>' },
+        { data: null, defaultContent: '<div class="ticket-actions"><button class="button is-small ticket-edit" type="button">Edit ticket</button><button class="button is-small ticket-note" type="button">Add update</button><button class="button is-small ticket-upload" type="button">Add images</button></div>' },
       ],
     });
     table.on('preDraw', leave);
@@ -162,6 +164,7 @@ window.ticketDashboard = (() => {
       if (!row.data()) return;
       try {
         if (button.classList.contains('ticket-edit')) await openEdit(row.data().ticket_id);
+        if (button.classList.contains('ticket-note')) await openNote(row.data().ticket_id);
         if (button.classList.contains('ticket-upload')) await openImages(row.data().ticket_id);
         if (button.classList.contains('ticket-expand')) {
           if (row.child.isShown()) { row.child.hide(); dispose(tr); button.setAttribute('aria-expanded', 'false'); return; }
@@ -177,11 +180,12 @@ window.ticketDashboard = (() => {
   }
   function historyEntry(item) {
     const block = node('article', null, 'ticket-event');
+    const changes = item.changes || {};
     block.append(node('strong', `${date(item.occurred_at)} · ${item.actor}`));
     block.append(node('p', item.event_type === 'CREATED' ? 'Ticket created'
+      : changes.update_kind === 'PROGRESS_NOTE' ? 'Progress update'
       : item.old_status !== item.new_status ? `${display(item.old_status)} → ${display(item.new_status)}` : 'Ticket updated'));
     if (item.note) block.append(node('p', item.note, 'ticket-preserve-text'));
-    const changes = item.changes || {};
     for (const [key, label] of [['priority', 'Priority'], ['assigned_to', 'Assigned staff'], ['issue_type', 'Issue type']]) {
       if (changes[key]) block.append(node('p', `${label}: ${display(changes[key].before)} → ${display(changes[key].after)}`));
     }
@@ -249,6 +253,8 @@ window.ticketDashboard = (() => {
         });
       }
       root.append(node('h4', 'History', 'title is-6'));
+      const addNote = node('button', 'Add update', 'button is-small'); addNote.type = 'button'; root.append(addNote);
+      addNote.addEventListener('click', () => openNote(ticketId).catch((error) => message('ticketTableError', error.message)));
       const history = node('div'); root.append(history);
       if (!events.data.length) history.append(node('p', 'No history has been recorded.'));
       events.data.forEach((item) => history.append(historyEntry(item)));
@@ -310,6 +316,22 @@ window.ticketDashboard = (() => {
     $('ticketReopenField').hidden = !reopening;
     $('ticketEditForm').elements.change_note.required = reopening;
   }
+  async function openNote(ticketId) {
+    const ticket = await fetchJson(`/api/tickets/${ticketId}`);
+    const form = $('ticketNoteForm');
+    if (noteDraftTicketId && noteDraftTicketId !== ticketId && form.elements.note.value.trim()) {
+      message('ticketTableError', `You have an unsaved update for ticket #${noteDraftTicketId}. Open its Add update form to finish or clear that draft first.`);
+      return;
+    }
+    if (noteDraftTicketId !== ticketId) { form.reset(); rememberedActor(form); }
+    noteDraftTicketId = ticketId;
+    noteTicket = ticket;
+    $('ticketNoteTitle').textContent = `Add update to ticket #${ticketId}`;
+    $('ticketNoteContext').textContent = `${ticket.reporter_name} · ${ticket.microscope || 'Facility-wide'} · ${display(ticket.status)} · Version ${ticket.version}`;
+    $('ticketNoteCount').textContent = `${form.elements.note.value.length.toLocaleString()} / 2,000`;
+    message('ticketNoteError', '');
+    if (!$('ticketNoteDialog').open) $('ticketNoteDialog').showModal();
+  }
   async function openImages(ticketId, preserveFiles = false) {
     const [ticket, images] = await Promise.all([fetchJson(`/api/tickets/${ticketId}`), fetchJson(`/api/tickets/${ticketId}/images`)]);
     imageTicket = ticket; imageCount = images.data.length;
@@ -366,6 +388,23 @@ window.ticketDashboard = (() => {
       await fetchJson(`/api/tickets/${editTicket.ticket_id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       $('ticketEditDialog').close();
       await afterWrite(`Ticket #${editTicket.ticket_id} updated. A resolved or cancelled ticket may be hidden by the current status filters.`);
+    });
+  });
+  $('ticketNoteForm').elements.note.addEventListener('input', (event) => {
+    $('ticketNoteCount').textContent = `${event.target.value.length.toLocaleString()} / 2,000`;
+  });
+  $('reloadTicketNote').addEventListener('click', () => openNote(noteTicket.ticket_id).catch((error) => message('ticketNoteError', error.message)));
+  $('ticketNoteForm').addEventListener('submit', (event) => {
+    event.preventDefault(); const form = event.currentTarget;
+    submit(form, 'ticketNoteError', async () => {
+      if (!form.elements.note.value.trim()) throw new Error('Enter a progress update before saving.');
+      const body = { version: noteTicket.version, note: form.elements.note.value, actor_name: form.elements.actor_name.value };
+      await fetchJson(`/api/tickets/${noteTicket.ticket_id}/notes`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const ticketId = noteTicket.ticket_id;
+      noteDraftTicketId = null; form.reset(); $('ticketNoteDialog').close();
+      await afterWrite(`Update added to ticket #${ticketId}. Expand its details to read the history.`);
     });
   });
   $('reloadTicketImages').addEventListener('click', () => openImages(imageTicket.ticket_id, true).catch((error) => message('ticketImagesError', error.message)));

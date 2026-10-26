@@ -957,7 +957,7 @@ tr.details-open .fileset-detail-button i {
 .ticket-sort-row > label { flex: 0 0 150px; }
 #ticketTable { font-size: 0.84rem; }
 .ticket-message-preview { min-width: 210px; max-width: 330px; white-space: normal; overflow-wrap: anywhere; }
-.ticket-actions { display: flex; gap: 0.35rem; }
+.ticket-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; min-width: 155px; }
 .ticket-status { display: inline-block; white-space: nowrap; padding: 0.2rem 0.5rem; border-radius: 5px; background: var(--blue-soft); color: #23499a; font-size: 0.78rem; }
 .ticket-status-resolved { background: var(--teal-soft); color: #056654; }
 .ticket-status-cancelled { background: #edf0f3; color: #596779; }

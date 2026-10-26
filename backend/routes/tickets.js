@@ -411,6 +411,27 @@ function createTicketsRouter({ pool } = {}) {
     });
     res.json(publicTicket(result));
   }));
+  router.post('/:ticketId/notes', route(async (req, res) => {
+    const ticketId = id(req.params.ticketId);
+    onlyFields(req.body, ['version', 'note', 'actor_name']);
+    const who = actor(req.body);
+    const note = text(req.body.note, 'Progress update', 2000, true);
+    const version = integer(req.body.version, null, 2147483647);
+    if (!version) fail('Current ticket version is required');
+    const result = await transaction(async (client) => {
+      const locked = await client.query('SELECT status, version FROM public.microscope_ticket WHERE ticket_id=$1::bigint FOR UPDATE', [ticketId]);
+      const ticket = locked.rows[0];
+      if (!ticket) fail('Ticket not found', 404);
+      if (ticket.version !== version) fail('This ticket changed. Reload latest before adding your update; your draft will be kept.', 409);
+      await event(client, ticketId, 'UPDATED', ticket.status, ticket.status, note,
+        { update_kind: 'PROGRESS_NOTE' }, who);
+      const updated = await client.query(`UPDATE public.microscope_ticket
+        SET version=version+1, updated_at=now(), updated_by=$2
+        WHERE ticket_id=$1::bigint RETURNING ${COLUMNS}`, [ticketId, who]);
+      return updated.rows[0];
+    });
+    res.status(201).json(publicTicket(result));
+  }));
   router.post('/:ticketId/images', parseUpload, route(async (req, res) => {
     const ticketId = id(req.params.ticketId);
     onlyFields(req.body, ['version', 'actor_name']);

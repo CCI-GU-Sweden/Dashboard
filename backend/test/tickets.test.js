@@ -67,6 +67,29 @@ test('authentication runs before ticket queries and multipart parsing', async ()
   } finally { await server.close(); }
 });
 
+test('progress updates require authentication, a version, author and bounded text before querying', async () => {
+  let queries = 0;
+  const unexpected = () => { queries += 1; throw new Error('Unexpected database access'); };
+  const server = await serve({ query: unexpected, connect: unexpected });
+  const url = `${server.url}/1/notes`;
+  try {
+    assert.equal((await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version: 1, note: 'Attempted fix', actor_name: 'Staff' }) })).status, 401);
+    for (const body of [
+      { version: 1, actor_name: 'Staff' },
+      { version: 1, actor_name: 'Staff', note: ' \n ' },
+      { version: 1, actor_name: 'Staff', note: 'x'.repeat(2001) },
+      { version: 1, actor_name: 'Staff', note: ['unexpected'] },
+      { version: 1, note: 'Attempted fix' },
+      { actor_name: 'Staff', note: 'Attempted fix' },
+      { version: 0, actor_name: 'Staff', note: 'Attempted fix' },
+      { version: 1, actor_name: 'Staff', note: 'Attempted fix', message: 'Overwrite report' },
+      { version: 1, actor_name: 'Staff', note: 'Attempted fix', status: 'RESOLVED' },
+    ]) assert.equal((await request(url, 'POST', body)).status, 400);
+    assert.equal(queries, 0);
+  } finally { await server.close(); }
+});
+
 test('ticket API against PostgreSQL: transactions, concurrency, filters, images, and trends', {
   skip: !process.env.TICKET_TEST_DATABASE_URL || !process.env.TICKET_TEST_ADMIN_URL,
 }, async (suite) => {
@@ -115,6 +138,72 @@ test('ticket API against PostgreSQL: transactions, concurrency, filters, images,
       const closed = await request(`${api}/${ticketId}`, 'PATCH', { version: 4, actor_name: 'Staff A', status: 'CANCELLED' });
       assert.equal(closed.status, 200);
       assert.equal(closed.data.resolution_note, null);
+    });
+    await suite.test('progress updates append without changing reports or closing details and reject stale versions', async () => {
+      const created = await request(api, 'POST', payload());
+      const ticketId = created.data.ticket_id;
+      const url = `${api}/${ticketId}/notes`;
+      const firstText = 'Restarted controller; error persists.\nNext: check cable. <script>test</script>';
+      const first = await request(url, 'POST', { version: 1, note: firstText, actor_name: 'Staff A' });
+      assert.equal(first.status, 201, JSON.stringify(first.data));
+      assert.equal(first.data.version, 2);
+      assert.equal(first.data.message, created.data.message);
+      assert.equal(first.data.status, 'OPEN');
+      assert.equal(first.data.updated_by, 'staff-entered: Staff A');
+      assert.equal((await request(url, 'POST', { version: 1, note: firstText, actor_name: 'Staff A' })).status, 409);
+      const competing = await Promise.all([
+        request(url, 'POST', { version: 2, note: 'Cable checked; no improvement.', actor_name: 'Staff B' }),
+        request(url, 'POST', { version: 2, note: 'Software restarted; error persists.', actor_name: 'Staff C' }),
+      ]);
+      assert.deepEqual(competing.map((result) => result.status).sort(), [201, 409]);
+      const long = await request(url, 'POST', { version: 3, note: 'x'.repeat(2000), actor_name: 'Staff A' });
+      assert.equal(long.status, 201, JSON.stringify(long.data));
+      for (const note of ['', '  \n ', 'x'.repeat(2001)]) {
+        assert.equal((await request(url, 'POST', { version: 4, note, actor_name: 'Staff A' })).status, 400);
+      }
+      const events = await request(`${api}/${ticketId}/events`);
+      const notes = events.data.data.filter((item) => item.changes.update_kind === 'PROGRESS_NOTE');
+      assert.equal(notes.length, 3);
+      assert.equal(notes.at(-1).note, firstText);
+      assert.equal(notes.at(-1).actor, 'staff-entered: Staff A');
+      assert.ok(notes.every((item) => item.old_status === 'OPEN' && item.new_status === 'OPEN' && item.occurred_at));
+      const resolved = await request(`${api}/${ticketId}`, 'PATCH', { version: 4,
+        actor_name: 'Staff A', status: 'RESOLVED', resolution_note: 'Replacement controller worked.' });
+      assert.equal(resolved.status, 200);
+      const followUp = await request(url, 'POST', { version: 5, note: 'Follow-up acquisition successful.', actor_name: 'Staff B' });
+      assert.equal(followUp.status, 201);
+      assert.equal(followUp.data.status, 'RESOLVED');
+      assert.equal(followUp.data.resolved_at, resolved.data.resolved_at);
+      assert.equal(followUp.data.resolution_note, resolved.data.resolution_note);
+      assert.equal(followUp.data.message, created.data.message);
+      assert.equal((await request(`${api}/99999999/notes`, 'POST', { version: 1, note: 'Test', actor_name: 'Staff' })).status, 404);
+      const denied = await pool.query(`UPDATE public.microscope_ticket_event SET note='overwritten'
+        WHERE event_id=$1`, [notes[0].event_id]).then(() => null, (error) => error.code);
+      assert.equal(denied, '42501');
+    });
+    await suite.test('a failed parent update rolls back the appended note', async () => {
+      const created = await request(api, 'POST', payload());
+      const ticketId = created.data.ticket_id;
+      const faultyPool = { connect: async () => {
+        const client = await pool.connect();
+        return { release: () => client.release(), query: (sql, values) => {
+          if (sql.includes('UPDATE public.microscope_ticket')) {
+            const error = new Error('Injected write failure'); error.code = '23514'; throw error;
+          }
+          return client.query(sql, values);
+        } };
+      } };
+      const faulty = await serve(faultyPool);
+      try {
+        assert.equal((await request(`${faulty.url}/${ticketId}/notes`, 'POST', {
+          version: 1, note: 'Must be rolled back', actor_name: 'Staff',
+        })).status, 400);
+        const ticket = await request(`${api}/${ticketId}`);
+        assert.equal(ticket.data.version, 1);
+        const events = await request(`${api}/${ticketId}/events`);
+        assert.equal(events.data.total, 1);
+        assert.equal(events.data.data[0].event_type, 'CREATED');
+      } finally { await faulty.close(); }
     });
     await suite.test('multipart creation, binary display, mismatched ticket isolation, count limit, and malformed uploads', async () => {
       const input = payload();
