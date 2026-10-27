@@ -9,7 +9,7 @@ const { getTicketCatalogue } = require('../ticket-catalogue');
 
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CANCELLED'];
 const ACTIVE = STATUSES.slice(0, 3);
-const TYPES = ['USER_REQUEST', 'INTERNAL_ISSUE', 'INCIDENT'];
+const TYPES = ['USER_REQUEST', 'USER_REPORT', 'INTERNAL_ISSUE', 'INCIDENT'];
 const ISSUES = ['SOFTWARE', 'HARDWARE', 'CONNECTION', 'ACCESS_PERMISSIONS', 'ACQUISITION_IMAGE_QUALITY', 'OTHER'];
 const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'CRITICAL'];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -464,6 +464,7 @@ function createTicketsRouter({ pool, catalogue } = {}) {
     if (error instanceof multer.MulterError) return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400)
       .json({ error: 'Upload up to five PNG/JPEG files, each at most 5 MiB, using the images field.' });
     if (error.status) return res.status(error.status).json({ error: error.message });
+    if (error.code === '23514' && error.constraint === 'microscope_ticket_ticket_type_check') return res.status(503).json({ error: 'User reports need the ticket-type database update. Apply migration 002_ticket_user_reports.sql once to this existing database.' });
     if (['23514', '22001', '22003', '22P02'].includes(error.code)) return res.status(400).json({ error: 'Ticket data does not satisfy the database limits.' });
     if (error.code === '42501') return res.status(503).json({ error: 'The current database role lacks ticket permissions. Ask an administrator to apply the ticket grants in proposal section 7; do not rerun migration 001.' });
     if (error.code === '42P01') return res.status(503).json({ error: 'Ticket tables are unavailable in this database. Check the test/production connection.' });
@@ -473,4 +474,7 @@ function createTicketsRouter({ pool, catalogue } = {}) {
   return router;
 }
 
-module.exports = { createTicketsRouter, buildTicketQuery, validateImages, SUMMARY_SQL };
+module.exports = {
+  createTicketsRouter, buildTicketQuery, validateImages, SUMMARY_SQL,
+  ticketOperations: { fail, text, onlyFields, id, integer, choice, event, publicTicket },
+};

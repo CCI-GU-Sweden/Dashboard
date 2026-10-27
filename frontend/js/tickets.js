@@ -3,10 +3,11 @@ window.ticketDashboard = (() => {
   const $ = (id) => document.getElementById(id);
   const names = {
     OPEN: 'Open', IN_PROGRESS: 'In progress', WAITING: 'Waiting', RESOLVED: 'Resolved', CANCELLED: 'Cancelled',
-    USER_REQUEST: 'User request', INTERNAL_ISSUE: 'Internal issue', INCIDENT: 'Incident',
+    USER_REQUEST: 'Support request', USER_REPORT: 'User report (user solved it)', INTERNAL_ISSUE: 'Internal issue', INCIDENT: 'Incident',
     SOFTWARE: 'Software', HARDWARE: 'Hardware', CONNECTION: 'Connection', ACCESS_PERMISSIONS: 'Access / permissions',
     ACQUISITION_IMAGE_QUALITY: 'Acquisition / image quality', OTHER: 'Other',
     LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', CRITICAL: 'Critical',
+    PENDING: 'Pending', FAILED: 'Failed', NOT_REQUESTED: 'Not requested',
   };
   const display = (value) => names[value] || value || 'Not specified';
   const catalogueName = (kind, value) => options?.[kind]?.find((entry) => entry.id === value)?.name || value;
@@ -200,11 +201,12 @@ window.ticketDashboard = (() => {
     const block = node('article', null, 'ticket-event');
     const changes = item.changes || {};
     block.append(node('strong', `${date(item.occurred_at)} · ${actorName(item.actor)}`));
-    block.append(node('p', item.event_type === 'CREATED' ? 'Ticket created'
+    block.append(node('p', item.event_type === 'CREATED' ? (changes.submission_kind === 'USER_REPORT' ? 'User report received' : 'Ticket created')
       : changes.update_kind === 'PROGRESS_NOTE' ? 'Progress update'
+      : item.event_type === 'CHAT_UPDATED' ? 'Chat updated'
       : item.old_status !== item.new_status ? `${display(item.old_status)} → ${display(item.new_status)}` : 'Ticket updated'));
     if (item.note) block.append(node('p', item.note, 'ticket-preserve-text'));
-    for (const [key, label] of [['priority', 'Priority'], ['assigned_to', 'Assigned staff'], ['issue_type', 'Issue type']]) {
+    for (const [key, label] of [['priority', 'Priority'], ['assigned_to', 'Assigned staff'], ['issue_type', 'Issue type'], ['chat_state', 'Chat state'], ['chat_thread_id', 'Chat reference']]) {
       if (changes[key]) {
         const format = key === 'assigned_to' ? staffName : display;
         block.append(node('p', `${label}: ${format(changes[key].before)} → ${format(changes[key].after)}`));
@@ -251,6 +253,7 @@ window.ticketDashboard = (() => {
       const details = node('div', null, 'ticket-detail-grid'); root.append(details);
       field(details, 'Original report', ticket.message);
       field(details, 'Reported by', `${ticket.reporter_name}${ticket.reporter_identifier ? ` · ${ticket.reporter_identifier}` : ''}`);
+      field(details, 'Ticket type', display(ticket.ticket_type));
       field(details, 'Microscope / assigned staff', `${microscopeName(ticket.microscope)} / ${staffName(ticket.assigned_to)}`);
       field(details, 'Opened / updated (Europe/Stockholm)', `${date(ticket.opened_at)} / ${date(ticket.updated_at)}`);
       field(details, 'Closing date', ticket.status === 'CANCELLED' ? date(ticket.closed_at) : date(ticket.resolved_at));

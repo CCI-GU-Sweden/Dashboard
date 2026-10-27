@@ -32,6 +32,7 @@ The backend is split into database, authentication middleware, and route modules
 - `GET /api/tickets` returns the paginated inventory with name, microscope, message, status, issue/ticket type, priority, assignment, source, chat-state, and date filters. Detail, event-history, and image-metadata routes are under `/api/tickets/:ticketId`.
 - `POST /api/tickets` creates a manual ticket (JSON, or multipart with an `images` field). `PATCH /api/tickets/:ticketId` updates status/classification/assignment using its current `version`. Staff names are self-reported with the existing shared login.
 - `POST /api/tickets/:ticketId/images` adds PNG/JPEG attachments; `GET /api/tickets/:ticketId/images/:imageId` serves authenticated image content. The limit is five images per ticket, 5 MiB and 20 megapixels per image. Binary content is excluded from inventory and metadata responses.
+- `/api/integrations/microscope-tickets` provides separately authenticated contact-form submission, microscope catalogue, receipt, and chat-callback endpoints. It supports requests for help and user-solved issue reports without granting staff API access.
 
 The frontend opens on an overview of Uploads, OMERO Storage, Tickets, and Compute. Each card opens its own mutually exclusive dashboard view while keeping the shared university header and login control visible. Upload details are loaded only when the Uploads view is opened, and authentication is retained in the current browser tab.
 
@@ -78,6 +79,16 @@ Multer bounds multipart uploads, and Sharp checks full PNG/JPEG decoding with a 
 
 Run `npm test` in `backend` for validation and existing-route tests. PostgreSQL integration tests are opt-in using `TICKET_TEST_DATABASE_URL` (runtime role) and `TICKET_TEST_ADMIN_URL` (test administrator) against a **dedicated disposable test database**; they create fixture reports and adjust their dates. Do not point them at deployed test or production data.
 
+## Support-page integration: requests and user reports
+
+The dashboard now accepts **Request support** and **Report to CCI** submissions through a backend-only API. Both use the simple name/microscope/issue form and start Open for staff review. Support requests are saved before chat creation, with chat pending. User reports are labelled **User report (user solved it)** and do not request a chat. They do not automatically count as staff resolutions. Staff decide issue type, priority, assignment, and resolution in the dashboard.
+
+Share [TICKET_SUPPORT_INTEGRATION.md](TICKET_SUPPORT_INTEGRATION.md) with the support-page developer. It contains the exact API contract, backend JavaScript example, Secret setup, microscope selector, and retry/chat instructions. The support application still owns its webhook and chat provider and must be connected to this API; this repository does not contain or change that application.
+
+Before enabling user reports in the existing test database, apply **migration 002**, not 001, using the [collector integration setup guide](../Omero-storage-collector/db/MICROSCOPE_TICKET_INTEGRATION_SETUP.md). The collector's current migration 001 includes `USER_REPORT` for fresh installations. The database upgrade preserves existing tickets/images/history and requires no new runtime grants. Configure the backend-only `TICKET_INTEGRATION_TOKEN` from a shared Kubernetes Secret, keep the existing catalogue mount/PostgreSQL settings, and deploy the rebuilt dashboard. Optional chat URLs require configured `TICKET_CHAT_HOSTS` entries; a chat thread reference alone works without a URL.
+
+The service API accepts only submission identity/kind plus the three public form fields. It cannot edit staff classification/status or read report content/history/images. Its token stays in the support backend; the public page receives neither that token nor staff login credentials. Contact submissions create ticket/history atomically, deduplicate identical retries, and return minimal receipts. The caller must also deduplicate its external webhook/chat actions; ticket deduplication alone does not guarantee exactly-once delivery there.
+
 ## Ticket staff and microscope catalogue
 
 Tickets uses [ticket-catalogue.configmap.yaml](ticket-catalogue.configmap.yaml) for microscope, staff-author, assignment, and assigned-staff filter dropdowns. All configured entries are available even before they have tickets. Reporter name/identifier remain free text for people contacting staff. The API validates selections and resolves IDs, exact names, or configured aliases to stable IDs, ignoring case and outer/repeated whitespace. Unknown values are rejected; LSM 880 and LSM 980 are never fuzzy-matched.
@@ -87,9 +98,9 @@ The existing `microscope` and `assigned_to` columns store catalogue IDs; staff a
 Creating the ConfigMap does not mount it into the container. From the repository root, attach it to the existing test deployment using the supplied strategic merge patch, which preserves the image, credentials, probes, and other settings:
 
 ```powershell
-oc -n core-omero-test apply -f ticket-catalogue.configmap.yaml
+oc core-omero-test apply -f ticket-catalogue.configmap.yaml
 oc patch deployment dashboard-test --type=strategic --patch-file ticket-catalogue.deployment-patch.yaml
-oc -n core-omero-test rollout status deployment/dashboard-test
+oc rollout status deployment/dashboard-test
 ```
 
 Deploy a rebuilt dashboard image containing these code/dependency changes using the normal image workflow; the commands above do not build or replace the image. The patch mounts the ConfigMap read-only at `/etc/dashboard/ticket-catalogue`. The backend reads the **inner `catalogue.yaml` file** at `/etc/dashboard/ticket-catalogue/catalogue.yaml`; it does not read the full Kubernetes manifest. For production, apply the ConfigMap in the production namespace and adjust the patch's container name and command's deployment name to match that workload. See [Kubernetes ConfigMap volumes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/#add-configmap-data-to-a-volume).

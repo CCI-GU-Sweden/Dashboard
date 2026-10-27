@@ -8,6 +8,7 @@ const omeroRouter = require('./routes/omero');
 const summaryRouter = require('./routes/summary');
 const uploadsRouter = require('./routes/uploads');
 const { createTicketsRouter } = require('./routes/tickets');
+const { createTicketIntegrationRouter } = require('./routes/ticket-integrations');
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -16,6 +17,8 @@ const frontendPath = existsSync(path.join(__dirname, 'frontend'))
 
 // OpenShift adds one reverse proxy hop in front of the application.
 app.set('trust proxy', 1);
+// Service authentication and its own JSON parser/rate limit precede staff routes.
+app.use('/api/integrations/microscope-tickets', createTicketIntegrationRouter());
 app.use(express.json());
 
 const limiter = rateLimit({

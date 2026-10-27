@@ -26,11 +26,23 @@ Multer handles bounded multipart uploads: at most five images per ticket, 5,242,
 
 Images remain binary `bytea` values in the deployed five-column image table. Metadata routes exclude binary payloads; a ticket-scoped content endpoint serves image bytes with authentication, private caching, and `nosniff`. The browser fetches with its Bearer header, displays an object URL, and releases the URL when details are closed or the view changes. Initial ticket/images/history are committed together. Later image additions update the ticket version and append metadata to history in one transaction.
 
-The shared login cannot verify individual staff identities. Forms require selecting a configured staff member, recorded as `staff-entered: <staff_id>`. The dashboard displays the configured name, but this selection remains self-reported. Confirm that the shared dashboard password is limited to staff before enabling staff writes for other audiences. Automatic contact-form ingestion and chat creation remain work in the separate contact application; this implementation creates manual reports with `source = DASHBOARD`.
+The shared login cannot verify individual staff identities. Forms require selecting a configured staff member, recorded as `staff-entered: <staff_id>`. The dashboard displays the configured name, but this selection remains self-reported. Confirm that the shared dashboard password is limited to staff before enabling staff writes for other audiences. Staff creation uses `source = DASHBOARD`. The separately authenticated integration API now creates `CONTACT_FORM` submissions; wiring the public form, staff webhook, and chat provider remains work in the support application.
 
 The container now uses the UBI 9 Node.js 22 image and the project requires Node.js 22 or later. Patched Multer/Sharp releases are recorded in `backend/package-lock.json`; rebuild the image to deploy these dependencies. Tickets reuses the existing OMERO Storage `PG*` pool, including its username and password, by default. No extra ticket credential variables are required. A paired `TICKET_PGUSER` / `TICKET_PGPASSWORD` override is optional, as described below.
 
 ## 1. Purpose and placement
+
+### Support-page integration: two submission kinds (implemented 2026-10-26)
+
+The support backend now has a dedicated `/api/integrations/microscope-tickets` API, protected by `TICKET_INTEGRATION_TOKEN` from a Kubernetes Secret. It is separate from the staff JWT login and has its own authenticated request limit and bounded JSON parser. See [TICKET_SUPPORT_INTEGRATION.md](TICKET_SUPPORT_INTEGRATION.md) for the coworker handoff, exact endpoints, payloads, backend JavaScript example, token setup, and deployment steps.
+
+Both visible forms remain **name, microscope, issue**. The button determines `submission_kind`: `SUPPORT_REQUEST` becomes `ticket_type = USER_REQUEST`, `status = OPEN`, and `chat_state = PENDING`; `USER_REPORT` becomes `ticket_type = USER_REPORT`, `status = OPEN`, and `chat_state = NOT_REQUESTED`. User reports mean the user says they solved the issue. Creation history records that statement and the dashboard labels it **User report (user solved it)**. They stay Open for staff review and do not automatically increment the resolved metric. Staff classify/prioritize either kind later. Source is forced to `CONTACT_FORM`, issue type starts NULL, priority NORMAL, assignment NULL, and attribution is `integration: support-page`.
+
+The service API provides only microscope-list reads (without staff names), minimal submission-receipt reads by stable UUID, submission creation, and chat-reference callbacks for contact support requests. It does not grant staff endpoint access, allow arbitrary ticket reads, accept staff classifications/status changes, or permit chat creation for user reports. A stable UUID and creation hash deduplicate retries without overwriting staff edits. Initial report/history insertion is atomic. The support application must separately deduplicate external webhook/chat calls and retain the submission identity during retries.
+
+The support backend saves the ticket before continuing its existing staff webhook/chat steps. It skips chat for user reports and records chat OPEN/FAILED through the integration callback for support requests. Callbacks lock/version-check the ticket, append history, and change only chat/audit fields. Identical callbacks are idempotent. Failed chats retain their ticket; an established chat reference cannot be replaced by this service. The existing support application has not been modified by this dashboard change.
+
+The `USER_REPORT` value requires a small constraint update in the existing test database: apply [collector migration 002](../Omero-storage-collector/db/migrations/002_ticket_user_reports.sql) using its [beginner setup guide](../Omero-storage-collector/db/MICROSCOPE_TICKET_INTEGRATION_SETUP.md), without rerunning 001. Fresh installations use the updated 001 that includes this value already. No new tables, columns, database login, or grants are needed. The deployed database is not migrated automatically by the dashboard.
 
 ### Controlled staff and microscope catalogue (implemented 2026-10-26)
 
@@ -215,7 +227,7 @@ Each row is one report, regardless of whether it originated in the contact form 
 | `reporter_identifier` | `varchar(254)` | Optional | Stable user ID or email if the contact app already has it; do not add a mandatory form field. |
 | `microscope` | `varchar(150)` | Optional | Stable microscope catalogue ID, such as `lsm_980`; `NULL` means facility-wide / not applicable. |
 | `message` | `text` | Required, 1–20,000 characters | Original report, kept immutable in the normal edit API. |
-| `ticket_type` | `varchar(30)` | `USER_REQUEST` | `USER_REQUEST`, `INTERNAL_ISSUE`, or `INCIDENT`. |
+| `ticket_type` | `varchar(30)` | `USER_REQUEST` | `USER_REQUEST`, `USER_REPORT` (user-solved issue for review), `INTERNAL_ISSUE`, or `INCIDENT`. |
 | `issue_type` | `varchar(30)` | Optional, `NULL` | Problem category: `SOFTWARE`, `HARDWARE`, `CONNECTION`, `ACCESS_PERMISSIONS`, `ACQUISITION_IMAGE_QUALITY`, or `OTHER`. Independent of `ticket_type`. |
 | `priority` | `varchar(10)` | `NORMAL` | `LOW`, `NORMAL`, `HIGH`, or `CRITICAL`. |
 | `source` | `varchar(20)` | Required | `CONTACT_FORM` or `DASHBOARD`. |
@@ -294,7 +306,7 @@ CREATE TABLE public.microscope_ticket (
     message text NOT NULL
         CHECK (char_length(btrim(message)) > 0 AND char_length(message) <= 20000),
     ticket_type varchar(30) NOT NULL DEFAULT 'USER_REQUEST'
-        CHECK (ticket_type IN ('USER_REQUEST', 'INTERNAL_ISSUE', 'INCIDENT')),
+        CHECK (ticket_type IN ('USER_REQUEST', 'USER_REPORT', 'INTERNAL_ISSUE', 'INCIDENT')),
     issue_type varchar(30)
         CHECK (issue_type IN (
             'SOFTWARE', 'HARDWARE', 'CONNECTION', 'ACCESS_PERMISSIONS',
@@ -502,7 +514,7 @@ Add `backend/routes/tickets.js` and mount it at `/api/tickets` in `backend/index
 | `POST /api/tickets` | Create a staff-entered ticket; backend forces `source = DASHBOARD`. |
 | `PATCH /api/tickets/:ticketId` | Change status, assignment, priority, or optional issue type with concurrency protection. |
 
-Protect all staff endpoints with `authMiddleware`. If service ingestion is chosen, add a separate endpoint such as `POST /api/integrations/microscope-tickets` with separate service authentication, input allow-lists, and rate limiting. Its backend forces `source = CONTACT_FORM`. Do not make contact ingestion a public, unrestricted ticket-write endpoint.
+Protect all staff endpoints with `authMiddleware`. The separate service router implements `POST /api/integrations/microscope-tickets`, `GET .../microscopes`, `GET .../submissions/:sourceEventId`, and `PATCH .../:ticketId/chat`. It forces `source = CONTACT_FORM`, uses service-token authentication and its own rate limit, and rejects staff fields in submission bodies. Its JSON parser runs after service authentication. No staff login token or PostgreSQL credential is sent to the public page.
 
 ### Create example
 
@@ -899,4 +911,4 @@ Before enabling production ingestion, verify these meaningful behaviors:
 - Role tests verify permitted inserts/updates and denied destructive/original-message/event-history mutations.
 - Existing fileset inventory, policy editing, billing, and health views continue working.
 
-The current dashboard implementation provides the card, inventory, staff create/update flows, filtering, history, and image upload/display against the supplied test schema. Configure the ticket database credentials and deploy the rebuilt container to exercise it in that environment. Automatic contact-form persistence/chat integration remains separate application work, along with any later individual staff authentication or Crosslab integration.
+The current dashboard implementation provides the card, inventory, staff create/update flows, filtering, history, image upload/display, and backend contact integration for support requests and user reports. Apply migration 002 to an existing earlier ticket database, configure the service Secret and catalogue mount, and deploy the rebuilt container. The separate support application still needs to call this API and retain ownership of its webhook/chat provider. Individual staff authentication and Crosslab integration remain later work.
